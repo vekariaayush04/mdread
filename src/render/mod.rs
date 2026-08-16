@@ -1,6 +1,7 @@
 pub mod code;
 pub mod inline;
 pub mod layout;
+pub mod table;
 
 use ratatui::text::Line;
 

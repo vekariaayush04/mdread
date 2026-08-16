@@ -53,8 +53,10 @@ pub fn layout_block(block: &Block, width: u16, theme: &Theme) -> BlockRender {
             lines: crate::render::code::layout_code(lang.as_deref(), text, width, theme),
             anchor: None,
         },
-        // Task 15 fills this in.
-        Block::Table(_) => BlockRender::default(),
+        Block::Table(t) => BlockRender {
+            lines: crate::render::table::layout_table(t, width, theme),
+            anchor: None,
+        },
     }
 }
 
