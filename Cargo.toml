@@ -20,7 +20,12 @@ path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.30"
-comrak = "0.54"
+# default-features = false is load-bearing here. comrak's defaults are
+# ["cli", "syntect-onig", "bon"], which pull in oniguruma (a C library that
+# breaks cross-compilation) plus comrak's entire CLI dependency tree. Cargo
+# unifies features across the whole graph, so comrak's syntect settings would
+# win over ours below no matter what we write there. We only parse with comrak.
+comrak = { version = "0.54", default-features = false }
 syntect = { version = "5.3", default-features = false, features = [
     "default-syntaxes",
     "default-themes",
