@@ -89,9 +89,14 @@ impl App {
     }
 
     /// The measure text is laid out at, given the terminal width and config.
+    ///
+    /// Four columns are reserved: two for the viewer's borders, and one of
+    /// padding on each side. Without that padding, full-width content — a
+    /// horizontal rule, a quote bar — renders flush against the frame and
+    /// reads as part of it rather than as content.
     fn content_width(&self) -> u16 {
         self.last_term_width
-            .saturating_sub(2) // the viewer's left and right borders
+            .saturating_sub(4)
             .min(self.settings.max_measure)
             .max(MIN_CONTENT_WIDTH)
     }
@@ -283,7 +288,8 @@ mod tests {
         let mut app = App::new(Settings::default(), &theme::DARK);
         app.set_geometry(50, 30);
         app.open_source(PathBuf::from("a.md"), "x\n");
-        assert_eq!(app.doc.as_ref().unwrap().content_width, 48);
+        // 50 columns less two borders and one column of padding per side.
+        assert_eq!(app.doc.as_ref().unwrap().content_width, 46);
     }
 
     #[test]

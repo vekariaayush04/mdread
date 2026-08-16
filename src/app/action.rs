@@ -19,7 +19,12 @@ pub fn map_key(key: KeyEvent) -> Action {
         (KeyCode::Char('c'), true) => Action::Quit,
         // Any other Ctrl-modified key is reserved for later phases.
         (_, true) => Action::None,
-        (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => Action::Quit,
+        (KeyCode::Char('q'), _) => Action::Quit,
+        // Esc must NOT quit. The design gives it exactly one job — back out of
+        // the current mode — and P1 has only one mode, so it does nothing yet.
+        // Binding it to Quit would mean that in P2, dismissing a search box
+        // kills the whole session.
+        (KeyCode::Esc, _) => Action::None,
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Action::ScrollLines(1),
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Action::ScrollLines(-1),
         (KeyCode::Char('d'), _) => Action::ScrollHalfPage(1),
@@ -98,6 +103,16 @@ mod tests {
     fn reload_and_help_are_bound() {
         assert_eq!(map_key(key('r')), Action::Reload);
         assert_eq!(map_key(key('?')), Action::Help);
+    }
+
+    #[test]
+    fn esc_does_not_quit() {
+        // Esc is reserved for dismissing a mode. If this ever maps to Quit,
+        // closing an overlay in a later phase will end the session instead.
+        assert_eq!(
+            map_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Action::None
+        );
     }
 
     #[test]
