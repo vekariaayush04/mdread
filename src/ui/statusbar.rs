@@ -1,4 +1,5 @@
 use crate::app::state::App;
+use crate::render::sanitize::strip_controls;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -23,10 +24,13 @@ pub fn scroll_indicator(scroll: usize, max_scroll: usize, has_doc: bool) -> Stri
 }
 
 pub fn status_line(app: &App) -> Line<'static> {
+    // A filename can legally contain control characters (it is filesystem
+    // data, not something this reader chose), so it gets the same treatment
+    // as document body text before it becomes a `Span`.
     let path = app
         .doc
         .as_ref()
-        .map(|d| d.path.display().to_string())
+        .map(|d| strip_controls(&d.path.display().to_string(), &[]))
         .unwrap_or_else(|| "no document".to_string());
     let position = scroll_indicator(
         app.doc.as_ref().map(|d| d.scroll).unwrap_or(0),

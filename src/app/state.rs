@@ -2,6 +2,7 @@ use crate::app::action::Action;
 use crate::config::Settings;
 use crate::doc;
 use crate::doc::ir::Document;
+use crate::render::sanitize::strip_controls;
 use crate::render::{RenderedDoc, render};
 use crate::theme::Theme;
 use std::path::{Path, PathBuf};
@@ -77,7 +78,11 @@ impl App {
             Ok(source) => self.open_source(path.to_path_buf(), &source),
             Err(e) => {
                 self.doc = None;
-                self.error = Some(format!("cannot read {}: {e}", path.display()));
+                // `path` is filesystem data and can legally contain control
+                // characters; this message is eventually rendered as a
+                // `Span`, so it gets the same sanitisation as document text.
+                let shown = strip_controls(&path.display().to_string(), &[]);
+                self.error = Some(format!("cannot read {shown}: {e}"));
             }
         }
     }

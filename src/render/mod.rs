@@ -1,6 +1,7 @@
 pub mod code;
 pub mod inline;
 pub mod layout;
+pub mod sanitize;
 pub mod table;
 
 use crate::doc::ir::Document;

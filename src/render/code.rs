@@ -1,3 +1,4 @@
+use crate::render::sanitize::strip_controls;
 use crate::theme::Theme;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -38,6 +39,14 @@ fn syntect_style(style: syntect::highlighting::Style, theme: &Theme) -> Style {
 
 /// One entry per source line, each a run of styled fragments.
 fn highlight(lang: Option<&str>, text: &str, theme: &Theme) -> Vec<Vec<(Style, String)>> {
+    // A fenced code block is document text like any other, and an obvious
+    // place to hide an escape sequence (syntax highlighting is a different
+    // code path than `render::inline`, so it needs its own sanitisation).
+    // `\n` is kept because `.lines()` below depends on it; `\t` is kept
+    // because `expand_tabs` below converts it to spaces, so it must survive
+    // this pass to be expanded rather than silently vanish.
+    let text = strip_controls(text, &['\n', '\t']);
+    let text = text.as_str();
     let plain_style = Style::default().fg(theme.code_fg).bg(theme.code_bg);
     let plain = |text: &str| -> Vec<Vec<(Style, String)>> {
         text.lines()

@@ -1,4 +1,5 @@
 use crate::doc::ir::Inline;
+use crate::render::sanitize::strip_controls;
 use crate::theme::Theme;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -28,9 +29,12 @@ fn push_inlines(inlines: &[Inline], theme: &Theme, style: Style, out: &mut Vec<T
     for inline in inlines {
         match inline {
             Inline::Text(t) => push_text(t, style, out),
-            // One token, so wrapping never breaks inside inline code.
+            // One token, so wrapping never breaks inside inline code. Code
+            // span text never legitimately contains a control character
+            // (CommonMark normalises line endings inside code spans to
+            // spaces before this ever sees the text), so no exceptions.
             Inline::Code(t) => out.push(Token {
-                text: t.clone(),
+                text: strip_controls(t, &[]),
                 style: Style::default().fg(theme.code_fg).bg(theme.code_bg),
                 kind: TokenKind::Word,
             }),
@@ -46,7 +50,7 @@ fn push_inlines(inlines: &[Inline], theme: &Theme, style: Style, out: &mut Vec<T
                 out,
             ),
             Inline::Image { alt, .. } => push_text(
-                &format!("[image: {alt}]"),
+                &format!("[image: {}]", strip_controls(alt, &[])),
                 Style::default().fg(theme.muted),
                 out,
             ),
@@ -68,6 +72,9 @@ fn push_text(text: &str, style: Style, out: &mut Vec<Token>) {
     let mut buf = String::new();
     for ch in text.chars() {
         if ch.is_whitespace() {
+            // Every whitespace control character (tab, newline, CR, NEL,
+            // ...) is normalised to a single space here, so it never reaches
+            // the `else` branch below and never needs separate stripping.
             if !buf.is_empty() {
                 out.push(Token {
                     text: std::mem::take(&mut buf),
@@ -80,7 +87,11 @@ fn push_text(text: &str, style: Style, out: &mut Vec<Token>) {
                 style,
                 kind: TokenKind::Space,
             });
-        } else {
+        } else if !ch.is_control() {
+            // Non-whitespace control characters (ESC, BEL, BS, DEL, C1...)
+            // are exactly the ones that can start a terminal escape
+            // sequence. Drop them; see `render::sanitize` for the rationale
+            // on removal over a visible placeholder.
             buf.push(ch);
         }
     }
