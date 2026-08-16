@@ -14,31 +14,95 @@ pub fn options() -> Options<'static> {
     o
 }
 
+/// Maximum recursion depth allowed when converting comrak's AST into our own
+/// IR — applied independently to block containers (quotes, lists) and to
+/// inline containers (emphasis, strong, strikethrough, links; see
+/// `bounded_inlines`).
+///
+/// comrak's own parser copes fine with arbitrarily deep nesting (its
+/// delimiter-stack and arena-based algorithms aren't recursive-per-level),
+/// but the conversion below recurses once per level of nesting, and so does
+/// every downstream consumer that walks the resulting IR (the renderer in
+/// `src/render/layout.rs`, `inline_text` in `src/doc/outline.rs`). Capping
+/// depth here, at the single point where the IR is built, is enough to
+/// bound all of them: a document like `"> ".repeat(10_000)` used to blow the
+/// stack (and stack overflow aborts the process — it cannot be caught) here
+/// and in every walker after it.
+///
+/// Real Markdown essentially never nests past ~10 levels, so 128 leaves
+/// over 10x headroom for any legitimate document while staying nowhere near
+/// a thread's stack limit even under a worst case combining block and
+/// inline recursion together (256 total levels through both this
+/// conversion and the renderer's mirroring recursion) on a constrained 2-8
+/// MiB stack. This is the same range (100-1000) CommonMark reference
+/// implementations commonly use for the equivalent guard.
+const MAX_NESTING_DEPTH: usize = 128;
+
+/// What a truncated container is replaced with once `MAX_NESTING_DEPTH` is
+/// reached. An *empty* container would technically be "truncated" too, but
+/// every layout function in `src/render/layout.rs` renders an empty
+/// container as zero lines, and that zero propagates: a quote whose only
+/// child renders to nothing itself renders to nothing, all the way up the
+/// chain. A 50,000-deep blockquote would then render as a genuinely blank
+/// screen, which reads as broken/hung rather than "there was more here that
+/// got cut off". A one-line marker breaks that cascade at the cap and keeps
+/// the truncation visible instead of silent.
+const TRUNCATED_MARKER: &str = "[truncated: exceeds maximum nesting depth]";
+
+fn truncated_paragraph() -> Block {
+    Block::Paragraph(vec![Inline::Text(TRUNCATED_MARKER.to_string())])
+}
+
 pub fn parse_blocks(source: &str) -> Vec<Block> {
     let arena = Arena::new();
     let root = parse_document(&arena, source, &options());
-    collect_blocks(root)
+    collect_blocks(root, 0)
 }
 
-fn collect_blocks<'a>(node: &'a AstNode<'a>) -> Vec<Block> {
-    node.children().filter_map(block_from).collect()
+fn collect_blocks<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<Block> {
+    node.children()
+        .filter_map(|n| block_from(n, depth))
+        .collect()
 }
 
-fn block_from<'a>(node: &'a AstNode<'a>) -> Option<Block> {
+/// Recurse into a block container's children unless the depth cap has been
+/// reached, in which case a visible marker takes the place of the (dropped)
+/// over-deep content — see `TRUNCATED_MARKER`.
+fn bounded_blocks<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<Block> {
+    if depth >= MAX_NESTING_DEPTH {
+        vec![truncated_paragraph()]
+    } else {
+        collect_blocks(node, depth + 1)
+    }
+}
+
+/// Same choice as `bounded_blocks`, for a list's items.
+fn bounded_items<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<ListItem> {
+    if depth >= MAX_NESTING_DEPTH {
+        vec![ListItem {
+            checked: None,
+            blocks: vec![truncated_paragraph()],
+        }]
+    } else {
+        collect_items(node, depth + 1)
+    }
+}
+
+fn block_from<'a>(node: &'a AstNode<'a>, depth: usize) -> Option<Block> {
     let value = node.data.borrow().value.clone();
     match value {
         NodeValue::Heading(h) => Some(Block::Heading {
             level: h.level,
-            content: collect_inlines(node),
+            content: collect_inlines(node, 0),
             slug: String::new(),
         }),
-        NodeValue::Paragraph => Some(Block::Paragraph(collect_inlines(node))),
+        NodeValue::Paragraph => Some(Block::Paragraph(collect_inlines(node, 0))),
         NodeValue::ThematicBreak => Some(Block::Rule),
-        NodeValue::BlockQuote => Some(Block::Quote(collect_blocks(node))),
+        NodeValue::BlockQuote => Some(Block::Quote(bounded_blocks(node, depth))),
         NodeValue::List(l) => Some(Block::List {
             ordered: l.list_type == ListType::Ordered,
             start: l.start as u64,
-            items: collect_items(node),
+            items: bounded_items(node, depth),
         }),
         NodeValue::CodeBlock(c) => Some(Block::Code {
             // The info string may carry extra words ("rust,ignore"); only the
@@ -72,7 +136,7 @@ fn table_from<'a>(node: &'a AstNode<'a>, alignments: &[TableAlignment]) -> Table
     let mut rows = Vec::new();
     for row in node.children() {
         let is_header = matches!(row.data.borrow().value, NodeValue::TableRow(true));
-        let cells: Vec<Vec<Inline>> = row.children().map(collect_inlines).collect();
+        let cells: Vec<Vec<Inline>> = row.children().map(|c| collect_inlines(c, 0)).collect();
         if is_header {
             head = cells;
         } else {
@@ -82,39 +146,55 @@ fn table_from<'a>(node: &'a AstNode<'a>, alignments: &[TableAlignment]) -> Table
     Table { align, head, rows }
 }
 
-fn collect_items<'a>(node: &'a AstNode<'a>) -> Vec<ListItem> {
+fn collect_items<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<ListItem> {
     node.children()
         .filter_map(|child| match child.data.borrow().value.clone() {
             NodeValue::Item(_) => Some(ListItem {
                 checked: None,
-                blocks: collect_blocks(child),
+                blocks: collect_blocks(child, depth),
             }),
             // A present symbol means the box is ticked.
             NodeValue::TaskItem(t) => Some(ListItem {
                 checked: Some(t.symbol.is_some()),
-                blocks: collect_blocks(child),
+                blocks: collect_blocks(child, depth),
             }),
             _ => None,
         })
         .collect()
 }
 
-fn collect_inlines<'a>(node: &'a AstNode<'a>) -> Vec<Inline> {
-    node.children().filter_map(inline_from).collect()
+fn collect_inlines<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<Inline> {
+    node.children()
+        .filter_map(|n| inline_from(n, depth))
+        .collect()
 }
 
-fn inline_from<'a>(node: &'a AstNode<'a>) -> Option<Inline> {
+/// Recurse into an inline container's children unless the depth cap has
+/// been reached (see `MAX_NESTING_DEPTH`). Past the cap the container's own
+/// content is replaced with `TRUNCATED_MARKER` rather than descended into
+/// further, for the same reason blocks are — otherwise an over-deep `Emph`
+/// wraps nothing, and that nothing propagates outward through every
+/// enclosing span the same way an empty quote does.
+fn bounded_inlines<'a>(node: &'a AstNode<'a>, depth: usize) -> Vec<Inline> {
+    if depth >= MAX_NESTING_DEPTH {
+        vec![Inline::Text(TRUNCATED_MARKER.to_string())]
+    } else {
+        collect_inlines(node, depth + 1)
+    }
+}
+
+fn inline_from<'a>(node: &'a AstNode<'a>, depth: usize) -> Option<Inline> {
     let value = node.data.borrow().value.clone();
     match value {
         // comrak 0.54 stores text as Cow<'static, str>, not String.
         NodeValue::Text(t) => Some(Inline::Text(t.into_owned())),
         NodeValue::Code(c) => Some(Inline::Code(c.literal)),
-        NodeValue::Emph => Some(Inline::Emph(collect_inlines(node))),
-        NodeValue::Strong => Some(Inline::Strong(collect_inlines(node))),
-        NodeValue::Strikethrough => Some(Inline::Strike(collect_inlines(node))),
+        NodeValue::Emph => Some(Inline::Emph(bounded_inlines(node, depth))),
+        NodeValue::Strong => Some(Inline::Strong(bounded_inlines(node, depth))),
+        NodeValue::Strikethrough => Some(Inline::Strike(bounded_inlines(node, depth))),
         NodeValue::Link(l) => Some(Inline::Link {
             target: l.url,
-            content: collect_inlines(node),
+            content: bounded_inlines(node, depth),
         }),
         NodeValue::Image(l) => Some(Inline::Image {
             target: l.url,
@@ -130,9 +210,17 @@ fn inline_from<'a>(node: &'a AstNode<'a>) -> Option<Inline> {
 
 /// Concatenate all text descendants, discarding formatting. Used for image
 /// alt text and heading titles in the outline.
+///
+/// Alt text can itself contain arbitrarily nested formatting
+/// (`![**...**](url)`), so this walk is depth-capped exactly like
+/// `bounded_inlines` — it walks comrak's AST directly rather than our IR,
+/// but the same unbounded-recursion risk applies.
 fn plain_text<'a>(node: &'a AstNode<'a>) -> String {
     let mut out = String::new();
-    fn walk<'a>(node: &'a AstNode<'a>, out: &mut String) {
+    fn walk<'a>(node: &'a AstNode<'a>, out: &mut String, depth: usize) {
+        if depth >= MAX_NESTING_DEPTH {
+            return;
+        }
         match &node.data.borrow().value {
             NodeValue::Text(t) => out.push_str(t),
             NodeValue::Code(c) => out.push_str(&c.literal),
@@ -140,11 +228,11 @@ fn plain_text<'a>(node: &'a AstNode<'a>) -> String {
             _ => {}
         }
         for c in node.children() {
-            walk(c, out);
+            walk(c, out, depth + 1);
         }
     }
     for c in node.children() {
-        walk(c, &mut out);
+        walk(c, &mut out, 0);
     }
     out
 }
