@@ -3,12 +3,17 @@ name = "mdread"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A terminal Markdown reader with a navigable docs tree"
+# Describes what it does TODAY. The docs-tree browser is planned, not built,
+# and a crates.io description is a promise to people who have not run it yet.
+description = "A terminal Markdown reader with syntax-highlighted code, GFM tables, and themes"
 license = "MIT"
 repository = "https://github.com/vekariaayush04/mdread"
+homepage = "https://github.com/vekariaayush04/mdread"
 readme = "README.md"
 keywords = ["markdown", "tui", "terminal", "viewer", "cli"]
 categories = ["command-line-utilities", "text-processing"]
+# Planning documents are for the repo, not for everyone who downloads the crate.
+exclude = ["docs/superpowers/", "BUILD_REPORT.md", ".github/"]
 
 [lib]
 name = "mdread"
