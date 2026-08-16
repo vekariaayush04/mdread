@@ -49,8 +49,12 @@ pub fn layout_block(block: &Block, width: u16, theme: &Theme) -> BlockRender {
             lines: layout_list(*ordered, *start, items, width, theme),
             anchor: None,
         },
-        // Tasks 14 and 15 fill these in.
-        Block::Code { .. } | Block::Table(_) => BlockRender::default(),
+        Block::Code { lang, text } => BlockRender {
+            lines: crate::render::code::layout_code(lang.as_deref(), text, width, theme),
+            anchor: None,
+        },
+        // Task 15 fills this in.
+        Block::Table(_) => BlockRender::default(),
     }
 }
 
