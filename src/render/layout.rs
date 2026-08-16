@@ -41,9 +41,89 @@ pub fn layout_block(block: &Block, width: u16, theme: &Theme) -> BlockRender {
             lines: layout_quote(inner, width, theme),
             anchor: None,
         },
-        // Tasks 13, 14, and 15 fill these in.
-        Block::List { .. } | Block::Code { .. } | Block::Table(_) => BlockRender::default(),
+        Block::List {
+            ordered,
+            start,
+            items,
+        } => BlockRender {
+            lines: layout_list(*ordered, *start, items, width, theme),
+            anchor: None,
+        },
+        // Tasks 14 and 15 fill these in.
+        Block::Code { .. } | Block::Table(_) => BlockRender::default(),
     }
+}
+
+fn layout_list(
+    ordered: bool,
+    start: u64,
+    items: &[crate::doc::ir::ListItem],
+    width: u16,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
+    // All markers in one list share a width so their content aligns, which
+    // matters once the numbers reach two digits.
+    let markers: Vec<String> = items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| match (ordered, item.checked) {
+            (_, Some(true)) => "[x] ".to_string(),
+            (_, Some(false)) => "[ ] ".to_string(),
+            (true, None) => format!("{}. ", start + i as u64),
+            (false, None) => "• ".to_string(),
+        })
+        .collect();
+    let indent = markers.iter().map(|m| m.width()).max().unwrap_or(0);
+
+    let mut out = Vec::new();
+    for (item, marker) in items.iter().zip(&markers) {
+        let marker_style = match item.checked {
+            Some(true) => Style::default().fg(theme.accent),
+            Some(false) => Style::default().fg(theme.muted),
+            None => Style::default().fg(theme.accent),
+        };
+        let inner_width = width.saturating_sub(indent as u16).max(1);
+        let body = layout_item_blocks(&item.blocks, inner_width, theme);
+        let first = Span::styled(format!("{marker:<indent$}"), marker_style);
+        let rest = Span::raw(" ".repeat(indent));
+        out.extend(hanging_indent(body, first, rest));
+    }
+    out
+}
+
+/// Lay out the blocks of one list item. A nested list sits directly under
+/// its parent's text: a blank line between a bullet and its sub-bullets
+/// reads as a break in the list. Every other block separates normally.
+fn layout_item_blocks(blocks: &[Block], width: u16, theme: &Theme) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::new();
+    for (i, block) in blocks.iter().enumerate() {
+        if i > 0 && !matches!(block, Block::List { .. }) {
+            out.push(Line::from(String::new()));
+        }
+        out.extend(layout_block(block, width, theme).lines);
+    }
+    out
+}
+
+/// Prefix the first line with `first` and every later line with `rest`.
+/// Blank lines get no prefix, so no trailing whitespace is emitted.
+fn hanging_indent(
+    lines: Vec<Line<'static>>,
+    first: Span<'static>,
+    rest: Span<'static>,
+) -> Vec<Line<'static>> {
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if line.spans.iter().all(|s| s.content.trim().is_empty()) {
+                return Line::from(String::new());
+            }
+            let mut spans = vec![if i == 0 { first.clone() } else { rest.clone() }];
+            spans.extend(line.spans);
+            Line::from(spans)
+        })
+        .collect()
 }
 
 fn layout_heading(
@@ -216,5 +296,61 @@ mod tests {
     #[test]
     fn layout_blocks_on_an_empty_document_yields_nothing() {
         assert!(layout_blocks(&[], 20, &DARK).is_empty());
+    }
+
+    #[test]
+    fn bullets_use_a_marker_and_hanging_indent() {
+        let r = lay("- alpha beta gamma\n", 12);
+        assert_eq!(texts(&r.lines), vec!["• alpha beta", "  gamma"]);
+    }
+
+    #[test]
+    fn ordered_lists_number_from_their_start_value() {
+        let r = lay("3. a\n4. b\n", 20);
+        assert_eq!(texts(&r.lines), vec!["3. a", "4. b"]);
+    }
+
+    #[test]
+    fn ordered_markers_wider_than_one_digit_still_align() {
+        // Every marker in a list is padded to the widest, so the item text
+        // starts in the same column whether the number is one digit or two.
+        let r = lay("9. a\n10. b\n", 20);
+        assert_eq!(texts(&r.lines), vec!["9.  a", "10. b"]);
+    }
+
+    #[test]
+    fn task_items_render_checkboxes() {
+        let r = lay("- [x] done\n- [ ] todo\n", 20);
+        assert_eq!(texts(&r.lines), vec!["[x] done", "[ ] todo"]);
+    }
+
+    #[test]
+    fn nested_lists_are_indented_under_their_parent() {
+        let r = lay("- a\n  - b\n", 20);
+        assert_eq!(texts(&r.lines), vec!["• a", "  • b"]);
+    }
+
+    #[test]
+    fn list_items_never_exceed_the_measure() {
+        let r = lay("- alpha beta gamma delta epsilon\n", 14);
+        for line in &r.lines {
+            assert!(text_of(line).width() <= 14, "overflow: {line:?}");
+        }
+    }
+
+    #[test]
+    fn an_item_with_two_paragraphs_keeps_them_separated_and_indented() {
+        let r = lay("- one\n\n  two\n", 20);
+        assert_eq!(texts(&r.lines), vec!["• one", "", "  two"]);
+    }
+
+    #[test]
+    fn a_list_with_no_items_produces_no_lines() {
+        let block = Block::List {
+            ordered: false,
+            start: 1,
+            items: vec![],
+        };
+        assert!(layout_block(&block, 20, &DARK).lines.is_empty());
     }
 }
