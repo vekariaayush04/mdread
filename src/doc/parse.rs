@@ -1,5 +1,5 @@
 use crate::doc::ir::*;
-use comrak::nodes::{AstNode, ListType, NodeValue};
+use comrak::nodes::{AstNode, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Options, parse_document};
 
 /// Extensions we enable. Kept in one place so parsing is identical
@@ -40,9 +40,46 @@ fn block_from<'a>(node: &'a AstNode<'a>) -> Option<Block> {
             start: l.start as u64,
             items: collect_items(node),
         }),
+        NodeValue::CodeBlock(c) => Some(Block::Code {
+            // The info string may carry extra words ("rust,ignore"); only the
+            // first token is the language, and an empty info means none.
+            lang: c
+                .info
+                .split([',', ' '])
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+            text: c.literal,
+        }),
+        NodeValue::Table(t) => Some(Block::Table(table_from(node, &t.alignments))),
         // Anything we do not model — HTML blocks, footnote definitions — is dropped.
         _ => None,
     }
+}
+
+fn table_from<'a>(node: &'a AstNode<'a>, alignments: &[TableAlignment]) -> Table {
+    let align = alignments
+        .iter()
+        .map(|a| match a {
+            TableAlignment::Left => Align::Left,
+            TableAlignment::Center => Align::Center,
+            TableAlignment::Right => Align::Right,
+            TableAlignment::None => Align::None,
+        })
+        .collect();
+
+    let mut head = Vec::new();
+    let mut rows = Vec::new();
+    for row in node.children() {
+        let is_header = matches!(row.data.borrow().value, NodeValue::TableRow(true));
+        let cells: Vec<Vec<Inline>> = row.children().map(collect_inlines).collect();
+        if is_header {
+            head = cells;
+        } else {
+            rows.push(cells);
+        }
+    }
+    Table { align, head, rows }
 }
 
 fn collect_items<'a>(node: &'a AstNode<'a>) -> Vec<ListItem> {
@@ -348,6 +385,92 @@ mod tests {
         match &blocks[0] {
             Block::Quote(inner) => assert!(matches!(inner[0], Block::List { .. })),
             other => panic!("expected quote, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_a_fenced_code_block_with_a_language() {
+        let blocks = parse_blocks("```rust\nfn a() {}\n```\n");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: Some("rust".into()),
+                text: "fn a() {}\n".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_fence_with_no_language_has_none() {
+        let blocks = parse_blocks("```\nplain\n```\n");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: None,
+                text: "plain\n".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn an_indented_code_block_has_no_language() {
+        // comrak reports info == "" here. Passing "" to syntect finds no
+        // syntax, so it must become None rather than Some("").
+        let blocks = parse_blocks("    indented\n");
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: None,
+                text: "indented\n".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn an_info_string_with_extra_words_keeps_only_the_language() {
+        let blocks = parse_blocks("```rust,ignore\nx\n```\n");
+        match &blocks[0] {
+            Block::Code { lang, .. } => assert_eq!(lang.as_deref(), Some("rust")),
+            other => panic!("expected code, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_a_table_with_a_header_and_rows() {
+        let blocks = parse_blocks("| a | b |\n|---|---|\n| 1 | 2 |\n");
+        match &blocks[0] {
+            Block::Table(t) => {
+                assert_eq!(t.head.len(), 2);
+                assert_eq!(t.head[0], vec![Inline::Text("a".into())]);
+                assert_eq!(t.rows.len(), 1);
+                assert_eq!(t.rows[0].len(), 2);
+                assert_eq!(t.rows[0][1], vec![Inline::Text("2".into())]);
+            }
+            other => panic!("expected table, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_table_column_alignments() {
+        let blocks = parse_blocks("| a | b | c | d |\n|:--|:-:|--:|---|\n| 1 | 2 | 3 | 4 |\n");
+        match &blocks[0] {
+            Block::Table(t) => assert_eq!(
+                t.align,
+                vec![Align::Left, Align::Center, Align::Right, Align::None]
+            ),
+            other => panic!("expected table, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_table_with_no_body_rows_still_parses() {
+        let blocks = parse_blocks("| a |\n|---|\n");
+        match &blocks[0] {
+            Block::Table(t) => {
+                assert_eq!(t.head.len(), 1);
+                assert!(t.rows.is_empty());
+            }
+            other => panic!("expected table, got {other:?}"),
         }
     }
 
