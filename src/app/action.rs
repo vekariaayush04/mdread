@@ -10,6 +10,7 @@ pub enum Action {
     Bottom,
     Reload,
     Help,
+    Dismiss,
     None,
 }
 
@@ -21,10 +22,10 @@ pub fn map_key(key: KeyEvent) -> Action {
         (_, true) => Action::None,
         (KeyCode::Char('q'), _) => Action::Quit,
         // Esc must NOT quit. The design gives it exactly one job — back out of
-        // the current mode — and P1 has only one mode, so it does nothing yet.
-        // Binding it to Quit would mean that in P2, dismissing a search box
-        // kills the whole session.
-        (KeyCode::Esc, _) => Action::None,
+        // the current mode. The help overlay is the first mode that job
+        // applies to: Esc dismisses it. Binding Esc to Quit would mean that
+        // dismissing a future mode (e.g. a search box) could end the session.
+        (KeyCode::Esc, _) => Action::Dismiss,
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Action::ScrollLines(1),
         (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Action::ScrollLines(-1),
         (KeyCode::Char('d'), _) => Action::ScrollHalfPage(1),
@@ -106,12 +107,12 @@ mod tests {
     }
 
     #[test]
-    fn esc_does_not_quit() {
-        // Esc is reserved for dismissing a mode. If this ever maps to Quit,
-        // closing an overlay in a later phase will end the session instead.
+    fn esc_dismisses_rather_than_quits() {
+        // Esc is reserved for dismissing a mode, never for quitting. If this
+        // ever maps to Quit, closing an overlay would end the session instead.
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-            Action::None
+            Action::Dismiss
         );
     }
 

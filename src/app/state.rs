@@ -27,6 +27,10 @@ pub struct App {
     pub viewport_height: u16,
     /// Last terminal width seen, used to recompute the measure.
     pub last_term_width: u16,
+    /// Whether the help overlay is showing. While it is, the document must
+    /// not move behind it, so `apply` short-circuits everything except the
+    /// actions that toggle or dismiss the overlay and quitting.
+    pub show_help: bool,
 }
 
 impl App {
@@ -39,6 +43,7 @@ impl App {
             should_quit: false,
             viewport_height: 0,
             last_term_width: 0,
+            show_help: false,
         }
     }
 
@@ -138,9 +143,32 @@ impl App {
     }
 
     pub fn apply(&mut self, action: Action) {
+        // Quit and the overlay's own toggle/dismiss work from anywhere,
+        // including while the overlay is open.
+        match action {
+            Action::Quit => {
+                self.should_quit = true;
+                return;
+            }
+            Action::Help => {
+                self.show_help = !self.show_help;
+                return;
+            }
+            Action::Dismiss => {
+                self.show_help = false;
+                return;
+            }
+            _ => {}
+        }
+
+        // Everything else — scrolling, reload — is suspended while the
+        // overlay is open, so the document underneath cannot move.
+        if self.show_help {
+            return;
+        }
+
         let height = self.viewport_height as i32;
         match action {
-            Action::Quit => self.should_quit = true,
             Action::ScrollLines(n) => self.scroll_by(n),
             Action::ScrollHalfPage(n) => self.scroll_by(n * (height / 2).max(1)),
             // One line of overlap so the reader keeps their place across a page.
@@ -148,7 +176,7 @@ impl App {
             Action::Top => self.scroll_by(i32::MIN / 2),
             Action::Bottom => self.scroll_by(i32::MAX / 2),
             Action::Reload => self.reload(),
-            Action::Help | Action::None => {}
+            Action::Quit | Action::Help | Action::Dismiss | Action::None => {}
         }
     }
 }
@@ -367,6 +395,77 @@ mod tests {
         app.set_geometry(100, 30);
         app.set_geometry(50, 20);
         assert!(app.doc.is_none());
+    }
+
+    #[test]
+    fn help_toggles_on_and_off() {
+        let mut app = app_with(100, 10);
+        assert!(!app.show_help);
+        app.apply(Action::Help);
+        assert!(app.show_help);
+        app.apply(Action::Help);
+        assert!(!app.show_help);
+    }
+
+    #[test]
+    fn dismiss_closes_the_help_overlay() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Help);
+        assert!(app.show_help);
+        app.apply(Action::Dismiss);
+        assert!(!app.show_help);
+    }
+
+    #[test]
+    fn dismiss_is_harmless_when_help_is_already_closed() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Dismiss);
+        assert!(!app.show_help);
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn scrolling_does_nothing_while_help_is_open() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Bottom);
+        let scroll_before = app.doc.as_ref().unwrap().scroll;
+        app.apply(Action::Help);
+
+        for action in [
+            Action::ScrollLines(-5),
+            Action::ScrollHalfPage(-1),
+            Action::ScrollPage(-1),
+            Action::Top,
+            Action::Bottom,
+        ] {
+            app.apply(action);
+            assert_eq!(
+                app.doc.as_ref().unwrap().scroll,
+                scroll_before,
+                "{action:?} moved the document while help was open"
+            );
+        }
+    }
+
+    #[test]
+    fn reload_does_nothing_while_help_is_open() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Help);
+        // "a.md" doesn't exist on disk; if Reload were actually attempted it
+        // would fail and clear `doc` in favour of an error. It must instead
+        // be a complete no-op while the overlay is open.
+        app.apply(Action::Reload);
+        assert!(app.show_help);
+        assert!(app.doc.is_some());
+        assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn quit_still_works_while_help_is_open() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Help);
+        app.apply(Action::Quit);
+        assert!(app.should_quit);
     }
 
     #[test]
