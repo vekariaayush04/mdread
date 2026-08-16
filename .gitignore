@@ -1,2 +1,6 @@
 /target
 *.snap.new
+
+# Local planning notes and build reports - not for the public repo.
+docs/superpowers/
+BUILD_REPORT.md
