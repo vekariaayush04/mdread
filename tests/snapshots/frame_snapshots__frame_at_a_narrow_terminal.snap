@@ -1,0 +1,28 @@
+---
+source: tests/frame_snapshots.rs
+expression: "frame(50, 24, source)"
+---
+┌fixture.md──────────────────────────────────────┐
+│ Reading Markdown                               │
+│ ────────────────                               │
+│                                                │
+│ A paragraph with emphasis, strong text, a      │
+│ retraction, some inline code, and a relative   │
+│ link.                                          │
+│                                                │
+│ │ A quotation that runs long enough to wrap at │
+│ │ narrow measures, so the bar prefix is        │
+│ │ exercised on more than one line.             │
+│ │                                              │
+│ │ A second paragraph inside the same quote.    │
+│                                                │
+│ ────────────────────────────────────────────── │
+│                                                │
+│ Section Two                                    │
+│                                                │
+│ Another paragraph. A very long unbroken token  │
+│ follows to exercise the hard-split path:       │
+│ https://example.com/an/extremely/long/path/tha │
+│ t/will/not/fit                                 │
+└────────────────────────────────────────────────┘
+fixture.md  All  q quit  ? help

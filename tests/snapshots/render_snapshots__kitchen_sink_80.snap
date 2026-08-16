@@ -1,0 +1,79 @@
+---
+source: tests/render_snapshots.rs
+expression: "render_to_text(source, width, & theme :: DARK)"
+---
+Kitchen Sink
+────────────
+
+Reading Markdown
+────────────────
+
+A paragraph with emphasis, strong text, a retraction, some inline code, and a
+relative link.
+
+│ A quotation that runs long enough to wrap at narrow measures, so the bar
+│ prefix is exercised on more than one line.
+│
+│ A second paragraph inside the same quote.
+
+────────────────────────────────────────────────────────────────────────────────
+
+Section Two
+
+Another paragraph. A very long unbroken token follows to exercise the hard-split
+path: https://example.com/an/extremely/long/path/that/will/not/fit
+
+Lists
+─────
+
+• first bullet
+• a bullet long enough to wrap at a narrow measure and show the hanging indent
+• nested:
+  • inner one
+  • inner two
+
+1. ordered one
+2. ordered two
+
+A paragraph breaks the list, so the next one starts its own numbering:
+
+9.  nine
+10. ten
+
+[x] a completed task
+[ ] an outstanding task
+
+Tables
+──────
+
+┌─────────────┬────────┬────────────────────────────┐
+│ Option      │  Type  │                Description │
+├─────────────┼────────┼────────────────────────────┤
+│ theme       │ string │        Colour theme to use │
+│ max_measure │ number │ Widest the text may become │
+└─────────────┴────────┴────────────────────────────┘
+
+┌───┐
+│ a │
+├───┤
+└───┘
+
+Code
+────
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ fn main() {                                                                  │
+│     let greeting = "hello";                                                  │
+│     println!("{greeting}");                                                  │
+│ }                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ no language here                                                             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ an indented block                                                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+A line with inline code in it.

@@ -1,0 +1,18 @@
+# Lists
+
+- first bullet
+- a bullet long enough to wrap at a narrow measure and show the hanging indent
+- nested:
+  - inner one
+  - inner two
+
+1. ordered one
+2. ordered two
+
+A paragraph breaks the list, so the next one starts its own numbering:
+
+9. nine
+10. ten
+
+- [x] a completed task
+- [ ] an outstanding task
