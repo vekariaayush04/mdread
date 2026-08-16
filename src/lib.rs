@@ -5,3 +5,4 @@ pub mod doc;
 pub mod render;
 pub mod term;
 pub mod theme;
+pub mod ui;
