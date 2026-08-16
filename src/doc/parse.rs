@@ -1,5 +1,5 @@
 use crate::doc::ir::*;
-use comrak::nodes::{AstNode, NodeValue};
+use comrak::nodes::{AstNode, ListType, NodeValue};
 use comrak::{Arena, Options, parse_document};
 
 /// Extensions we enable. Kept in one place so parsing is identical
@@ -34,9 +34,32 @@ fn block_from<'a>(node: &'a AstNode<'a>) -> Option<Block> {
         }),
         NodeValue::Paragraph => Some(Block::Paragraph(collect_inlines(node))),
         NodeValue::ThematicBreak => Some(Block::Rule),
+        NodeValue::BlockQuote => Some(Block::Quote(collect_blocks(node))),
+        NodeValue::List(l) => Some(Block::List {
+            ordered: l.list_type == ListType::Ordered,
+            start: l.start as u64,
+            items: collect_items(node),
+        }),
         // Anything we do not model — HTML blocks, footnote definitions — is dropped.
         _ => None,
     }
+}
+
+fn collect_items<'a>(node: &'a AstNode<'a>) -> Vec<ListItem> {
+    node.children()
+        .filter_map(|child| match child.data.borrow().value.clone() {
+            NodeValue::Item(_) => Some(ListItem {
+                checked: None,
+                blocks: collect_blocks(child),
+            }),
+            // A present symbol means the box is ticked.
+            NodeValue::TaskItem(t) => Some(ListItem {
+                checked: Some(t.symbol.is_some()),
+                blocks: collect_blocks(child),
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 fn collect_inlines<'a>(node: &'a AstNode<'a>) -> Vec<Inline> {
@@ -231,6 +254,101 @@ mod tests {
             inlines_of("x <b>raw</b>\n"),
             vec![Inline::Text("x ".into()), Inline::Text("raw".into()),]
         );
+    }
+
+    #[test]
+    fn parses_a_bullet_list() {
+        let blocks = parse_blocks("- a\n- b\n");
+        match &blocks[0] {
+            Block::List {
+                ordered,
+                start,
+                items,
+            } => {
+                assert!(!ordered);
+                assert_eq!(*start, 1);
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].checked, None);
+                assert_eq!(
+                    items[0].blocks,
+                    vec![Block::Paragraph(vec![Inline::Text("a".into())])]
+                );
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_an_ordered_list_honouring_its_start_number() {
+        let blocks = parse_blocks("3. a\n4. b\n");
+        match &blocks[0] {
+            Block::List {
+                ordered,
+                start,
+                items,
+            } => {
+                assert!(ordered);
+                assert_eq!(*start, 3);
+                assert_eq!(items.len(), 2);
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_task_items_with_their_checked_state() {
+        // comrak reports checked items as TaskItem(symbol: Some(_)) and
+        // unchecked ones as TaskItem(symbol: None) — NOT as plain Items.
+        let blocks = parse_blocks("- [x] done\n- [ ] todo\n");
+        match &blocks[0] {
+            Block::List { items, .. } => {
+                assert_eq!(items[0].checked, Some(true));
+                assert_eq!(items[1].checked, Some(false));
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_nested_lists() {
+        let blocks = parse_blocks("- a\n  - b\n");
+        match &blocks[0] {
+            Block::List { items, .. } => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].blocks.len(), 2);
+                assert!(matches!(items[0].blocks[1], Block::List { .. }));
+            }
+            other => panic!("expected list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_a_block_quote() {
+        let blocks = parse_blocks("> hello\n");
+        assert_eq!(
+            blocks,
+            vec![Block::Quote(vec![Block::Paragraph(vec![Inline::Text(
+                "hello".into()
+            )])])]
+        );
+    }
+
+    #[test]
+    fn parses_nested_block_quotes() {
+        let blocks = parse_blocks("> > deep\n");
+        match &blocks[0] {
+            Block::Quote(inner) => assert!(matches!(inner[0], Block::Quote(_))),
+            other => panic!("expected quote, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_a_list_inside_a_block_quote() {
+        let blocks = parse_blocks("> - a\n");
+        match &blocks[0] {
+            Block::Quote(inner) => assert!(matches!(inner[0], Block::List { .. })),
+            other => panic!("expected quote, got {other:?}"),
+        }
     }
 
     #[test]
