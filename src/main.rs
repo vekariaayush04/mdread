@@ -35,24 +35,39 @@ fn run() -> anyhow::Result<()> {
     })?;
 
     let app = App::new(settings, theme);
+    if let Some(path) = cli.file.as_deref() {
+        // Fail fast on a missing file rather than opening a blank UI.
+        if !path.exists() {
+            anyhow::bail!("no such file: {}", path.display());
+        }
+    }
 
     install_panic_hook();
     let mut guard = TerminalGuard::enter(RealTerm)?;
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, app);
+    let result = event_loop(&mut terminal, app, cli.file.clone());
     ratatui::restore();
     guard.leave()?;
     result
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal, mut app: App) -> anyhow::Result<()> {
+fn event_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    mut app: App,
+    file: Option<std::path::PathBuf>,
+) -> anyhow::Result<()> {
+    // Establish geometry before the first open so the document is laid out
+    // at the real measure rather than at zero width.
+    let size = terminal.size()?;
+    app.set_geometry(size.width, size.height);
+    if let Some(path) = &file {
+        app.open_path(path);
+    }
+
     loop {
         let size = terminal.size()?;
-        app.viewport_height = size.height.saturating_sub(3);
-        terminal.draw(|f| {
-            // Task 18 replaces this with mdread::ui::draw(f, &app).
-            f.render_widget(ratatui::widgets::Paragraph::new("mdread"), f.area());
-        })?;
+        app.set_geometry(size.width, size.height);
+        terminal.draw(|f| mdread::ui::draw(f, &app))?;
 
         if event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
