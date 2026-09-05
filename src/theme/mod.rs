@@ -1,4 +1,4 @@
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier, Style};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Theme {
@@ -13,6 +13,13 @@ pub struct Theme {
     pub rule: Color,
     pub border: Color,
     pub accent: Color,
+    /// A search hit. Both search styles are full `Style`s rather than bare
+    /// colours: a highlight has to set a foreground *and* a background, or
+    /// it inherits whatever the underlying span had and can end up
+    /// unreadable over a code block.
+    pub search_match: Style,
+    /// The hit the reader is currently on — deliberately louder.
+    pub search_current: Style,
     /// Name of a syntect bundled theme. Must be one of the seven that
     /// `ThemeSet::load_defaults()` actually provides.
     pub syntect_theme: &'static str,
@@ -30,6 +37,13 @@ pub const DARK: Theme = Theme {
     rule: Color::Rgb(0x4c, 0x56, 0x6a),
     border: Color::Rgb(0x4c, 0x56, 0x6a),
     accent: Color::Rgb(0xa3, 0xbe, 0x8c),
+    search_match: Style::new()
+        .fg(Color::Rgb(0x2e, 0x34, 0x40))
+        .bg(Color::Rgb(0x81, 0xa1, 0xc1)),
+    search_current: Style::new()
+        .fg(Color::Rgb(0x2e, 0x34, 0x40))
+        .bg(Color::Rgb(0xeb, 0xcb, 0x8b))
+        .add_modifier(Modifier::BOLD),
     syntect_theme: "base16-ocean.dark",
 };
 
@@ -45,6 +59,13 @@ pub const LIGHT: Theme = Theme {
     rule: Color::Rgb(0xc4, 0xcb, 0xd6),
     border: Color::Rgb(0xc4, 0xcb, 0xd6),
     accent: Color::Rgb(0x2d, 0x6a, 0x4f),
+    search_match: Style::new()
+        .fg(Color::Rgb(0x2e, 0x34, 0x40))
+        .bg(Color::Rgb(0xc9, 0xdb, 0xf0)),
+    search_current: Style::new()
+        .fg(Color::Rgb(0x2e, 0x34, 0x40))
+        .bg(Color::Rgb(0xf5, 0xcd, 0x79))
+        .add_modifier(Modifier::BOLD),
     syntect_theme: "InspiredGitHub",
 };
 
@@ -62,6 +83,11 @@ pub const HIGH_CONTRAST: Theme = Theme {
     rule: Color::White,
     border: Color::White,
     accent: Color::Green,
+    search_match: Style::new().fg(Color::Black).bg(Color::White),
+    search_current: Style::new()
+        .fg(Color::Black)
+        .bg(Color::Yellow)
+        .add_modifier(Modifier::BOLD),
     syntect_theme: "base16-eighties.dark",
 };
 
@@ -119,5 +145,28 @@ mod tests {
     #[test]
     fn high_contrast_uses_pure_black_and_white_text() {
         assert_eq!(HIGH_CONTRAST.text, Color::White);
+    }
+
+    #[test]
+    fn every_theme_distinguishes_the_current_match_from_the_others() {
+        for n in names() {
+            let t = by_name(n).unwrap();
+            assert_ne!(
+                t.search_match, t.search_current,
+                "theme {n} draws the current match like every other one"
+            );
+            // Highlighting works by repainting the cell's background; a
+            // style with no background would be invisible over most text.
+            assert!(t.search_match.bg.is_some(), "theme {n} has no match bg");
+            assert!(
+                t.search_current.bg.is_some(),
+                "theme {n} has no current-match bg"
+            );
+            assert!(t.search_match.fg.is_some(), "theme {n} has no match fg");
+            assert!(
+                t.search_current.fg.is_some(),
+                "theme {n} has no current-match fg"
+            );
+        }
     }
 }

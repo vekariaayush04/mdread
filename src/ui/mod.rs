@@ -1,4 +1,5 @@
 pub mod help;
+pub mod highlight;
 pub mod statusbar;
 pub mod viewer;
 
