@@ -123,6 +123,20 @@ impl Search {
         )
     }
 
+    /// Index of the last match strictly before line `line`, wrapping to the
+    /// last match in the document when nothing precedes it.
+    pub fn last_before(&self, line: usize) -> Option<usize> {
+        if self.matches.is_empty() {
+            return None;
+        }
+        Some(
+            self.matches
+                .iter()
+                .rposition(|m| m.line < line)
+                .unwrap_or(self.matches.len() - 1),
+        )
+    }
+
     /// Step `delta` matches, wrapping in both directions: `n` is `+1`,
     /// `N` is `-1`.
     pub fn step(&mut self, delta: i32) {
@@ -288,6 +302,26 @@ mod tests {
         lines(&[
             "hit", "no", "no", "no", "hit", "no", "no", "no", "hit", "no",
         ])
+    }
+
+    #[test]
+    fn last_before_finds_the_last_match_strictly_before_the_line() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        assert_eq!(s.last_before(5), Some(1));
+    }
+
+    #[test]
+    fn last_before_wraps_to_the_last_match_when_nothing_precedes_it() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        assert_eq!(s.last_before(0), Some(2));
+    }
+
+    #[test]
+    fn last_before_with_no_matches_is_none() {
+        let s = Search::new("absent".to_string());
+        assert_eq!(s.last_before(5), None);
     }
 
     #[test]

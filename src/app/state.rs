@@ -274,9 +274,29 @@ impl App {
         self.reveal_current_match();
     }
 
+    /// Step to the next (`delta > 0`) or previous (`delta < 0`) match.
+    ///
+    /// `less` searches from what is on screen, not from wherever the reader
+    /// last landed. If the current match is still visible, step from it as
+    /// usual; otherwise the reader has scrolled away since, so re-anchor to
+    /// the screen: `n` takes the first match at or after the top of the
+    /// viewport, `N` the last match above it.
     fn step_match(&mut self, delta: i32) {
+        let (scroll, height) = match &self.doc {
+            Some(d) => (d.scroll, self.viewport_height as usize),
+            None => return,
+        };
         if let Some(search) = self.search.as_mut() {
-            search.step(delta);
+            let visible = search
+                .current_match()
+                .is_some_and(|m| m.line >= scroll && m.line < scroll + height);
+            if visible {
+                search.step(delta);
+            } else if delta > 0 {
+                search.current = search.first_at_or_after(scroll);
+            } else {
+                search.current = search.last_before(scroll);
+            }
         }
         self.reveal_current_match();
     }
@@ -757,6 +777,75 @@ mod tests {
         assert_eq!(app.search.as_ref().unwrap().current, Some(total - 1));
         app.apply(Action::NextMatch);
         assert_eq!(app.search.as_ref().unwrap().current, Some(0));
+    }
+
+    /// A document with "needle" at rendered lines 0, 4, 10 and 1004 (all even,
+    /// since each one-line paragraph lands on an even line), and "filler"
+    /// everywhere else, truncated to exactly 1010 lines. With a 10-line
+    /// viewport, `Bottom` scrolls to 1000: the last needle (1004) is still on
+    /// screen, but the first three are not, and only the third (10) is
+    /// above the screen without another needle between it and the scroll.
+    fn app_with_scattered_matches() -> App {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.viewport_height = 10;
+        let needle_paragraphs = [0usize, 2, 5, 502];
+        let src: String = (0..600)
+            .map(|i| {
+                if needle_paragraphs.contains(&i) {
+                    "needle\n\n".to_string()
+                } else {
+                    "filler\n\n".to_string()
+                }
+            })
+            .collect();
+        app.open_source(PathBuf::from("a.md"), &src);
+        app.doc.as_mut().unwrap().rendered.lines.truncate(1010);
+        app
+    }
+
+    #[test]
+    fn n_after_scrolling_away_continues_from_the_screen_not_the_old_match() {
+        let mut app = app_with_scattered_matches();
+        search_for(&mut app, "needle"); // current is match 0, at line 0
+        app.apply(Action::Bottom);
+        let scroll_before = app.doc.as_ref().unwrap().scroll;
+        assert_eq!(scroll_before, 1000);
+
+        app.apply(Action::NextMatch);
+
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(
+            search.current,
+            Some(3),
+            "n must jump to the last match (on screen), not back to match 1"
+        );
+        assert!(search.current_match().unwrap().line >= scroll_before);
+    }
+
+    #[test]
+    fn shift_n_after_scrolling_away_goes_to_the_match_above_the_screen() {
+        let mut app = app_with_scattered_matches();
+        search_for(&mut app, "needle");
+        app.apply(Action::Bottom);
+        let scroll_before = app.doc.as_ref().unwrap().scroll;
+
+        app.apply(Action::PrevMatch);
+
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(
+            search.current,
+            Some(2),
+            "N must land on the last match above the screen"
+        );
+        assert!(search.current_match().unwrap().line < scroll_before);
+    }
+
+    #[test]
+    fn n_on_a_visible_match_still_steps_by_one() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p1"); // current is match 0, visible on screen
+        app.apply(Action::NextMatch);
+        assert_eq!(app.search.as_ref().unwrap().current, Some(1));
     }
 
     #[test]
