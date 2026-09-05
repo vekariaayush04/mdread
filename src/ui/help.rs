@@ -62,7 +62,7 @@ pub fn keymap() -> Vec<KeyHelp> {
         },
         KeyHelp {
             keys: "Esc",
-            description: "clear search",
+            description: "close this, or clear search",
         },
         KeyHelp {
             keys: "r",

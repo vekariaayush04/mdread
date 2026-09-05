@@ -4,24 +4,24 @@ expression: "frame_with_help(80, 24, source)"
 ---
 ┌fixture.md────────────────────────────────────────────────────────────────────┐
 │ Reading Markdown                                                             │
-│ ────────────────  ┌ Help ───────────────────────────────┐                    │
-│                   │ j / ↓         down a line           │                    │
-│ A paragraph with e│ k / ↑         up a line             │e inline code, and  │
-│ a relative link.  │ d             half page down        │                    │
-│                   │ u             half page up          │                    │
-│ │ A quotation that│ Space / PgDn  page down             │sures, so the bar   │
-│ │ prefix is exerci│ PgUp          page up               │                    │
-│ │                 │ g / Home      top                   │                    │
-│ │ A second paragra│ G / End       bottom                │                    │
-│                   │ /             search                │                    │
-│ ──────────────────│ n / N         next / previous match │─────────────────── │
-│                   │ Esc           clear search          │                    │
-│ Section Two       │ r             reload from disk      │                    │
-│                   │ ?             this help             │                    │
-│ Another paragraph.│ q / Ctrl-C    quit                  │exercise the        │
-│ hard-split path:  │                                     │                    │
-│ https://example.co│ Esc or ? to close                   │fit                 │
-│                   └─────────────────────────────────────┘                    │
+│ ───────────────┌ Help ─────────────────────────────────────┐                 │
+│                │ j / ↓         down a line                 │                 │
+│ A paragraph wit│ k / ↑         up a line                   │nline code, and  │
+│ a relative link│ d             half page down              │                 │
+│                │ u             half page up                │                 │
+│ │ A quotation t│ Space / PgDn  page down                   │es, so the bar   │
+│ │ prefix is exe│ PgUp          page up                     │                 │
+│ │              │ g / Home      top                         │                 │
+│ │ A second para│ G / End       bottom                      │                 │
+│                │ /             search                      │                 │
+│ ───────────────│ n / N         next / previous match       │──────────────── │
+│                │ Esc           close this, or clear search │                 │
+│ Section Two    │ r             reload from disk            │                 │
+│                │ ?             this help                   │                 │
+│ Another paragra│ q / Ctrl-C    quit                        │rcise the        │
+│ hard-split path│                                           │                 │
+│ https://example│ Esc or ? to close                         │                 │
+│                └───────────────────────────────────────────┘                 │
 │                                                                              │
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
