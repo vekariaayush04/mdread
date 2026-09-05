@@ -1,5 +1,6 @@
 use clap::Parser;
-use mdread::app::action::{Action, map_key};
+use mdread::app::action::{Action, map_key, map_prompt_key};
+use mdread::app::mode::Mode;
 use mdread::app::state::App;
 use mdread::cli::Cli;
 use mdread::term::{RealTerm, TerminalGuard, install_panic_hook};
@@ -73,7 +74,12 @@ fn event_loop(
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
-            let action = map_key(key);
+            // The prompt reads every printable character as text, so it
+            // needs its own key table.
+            let action = match &app.mode {
+                Mode::SearchPrompt { .. } => map_prompt_key(key),
+                _ => map_key(key),
+            };
             if action != Action::None {
                 app.apply(action);
             }

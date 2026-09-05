@@ -1,5 +1,6 @@
 use crate::app::action::Action;
 use crate::app::mode::Mode;
+use crate::app::search::Search;
 use crate::config::Settings;
 use crate::doc;
 use crate::doc::ir::Document;
@@ -34,6 +35,9 @@ pub struct App {
     /// so `apply` short-circuits everything except mode switches, the
     /// prompt's own editing keys, and quitting.
     pub mode: Mode,
+    /// The committed search, if any. `None` means no highlights, no
+    /// indicator, and `n`/`N` do nothing.
+    pub search: Option<Search>,
 }
 
 impl App {
@@ -47,6 +51,7 @@ impl App {
             viewport_height: 0,
             last_term_width: 0,
             mode: Mode::default(),
+            search: None,
         }
     }
 
@@ -97,6 +102,7 @@ impl App {
             if let Some(d) = self.doc.as_mut() {
                 d.scroll = scroll.min(d.rendered.len().saturating_sub(1));
             }
+            self.rerun_search();
         }
     }
 
@@ -123,6 +129,8 @@ impl App {
         let needs_reflow = self.doc.as_ref().is_some_and(|d| d.content_width != target);
         if needs_reflow {
             self.reflow(target);
+            // The line numbers every match refers to have just changed.
+            self.rerun_search();
         }
     }
 
@@ -166,7 +174,36 @@ impl App {
                 return;
             }
             Action::Dismiss => {
+                // Help and the prompt take precedence; in Reading, Esc has
+                // no overlay to close, so it clears the active search.
+                if self.mode.is_reading() {
+                    self.search = None;
+                }
                 self.mode = Mode::Reading;
+                return;
+            }
+            Action::SearchStart => {
+                if self.mode.is_reading() {
+                    self.mode = Mode::SearchPrompt {
+                        query: String::new(),
+                    };
+                }
+                return;
+            }
+            Action::SearchInput(c) => {
+                if let Mode::SearchPrompt { query } = &mut self.mode {
+                    query.push(c);
+                }
+                return;
+            }
+            Action::SearchBackspace => {
+                if let Mode::SearchPrompt { query } = &mut self.mode {
+                    query.pop();
+                }
+                return;
+            }
+            Action::SearchCommit => {
+                self.commit_search();
                 return;
             }
             _ => {}
@@ -187,7 +224,74 @@ impl App {
             Action::Top => self.scroll_by(i32::MIN / 2),
             Action::Bottom => self.scroll_by(i32::MAX / 2),
             Action::Reload => self.reload(),
-            Action::Quit | Action::Help | Action::Dismiss | Action::None => {}
+            Action::NextMatch => self.step_match(1),
+            Action::PrevMatch => self.step_match(-1),
+            Action::Quit
+            | Action::Help
+            | Action::Dismiss
+            | Action::SearchStart
+            | Action::SearchInput(_)
+            | Action::SearchBackspace
+            | Action::SearchCommit
+            | Action::None => {}
+        }
+    }
+
+    /// Commit the prompt's query: run it, land on the first match at or
+    /// after where the reader already is, and leave the prompt.
+    fn commit_search(&mut self) {
+        let Mode::SearchPrompt { query } = &self.mode else {
+            return;
+        };
+        let query = query.clone();
+        self.mode = Mode::Reading;
+        if query.is_empty() {
+            // Enter on an empty prompt cancels rather than matching every
+            // position in the document.
+            self.search = None;
+            return;
+        }
+        self.search = Some(Search::new(query));
+        self.rerun_search();
+        self.reveal_current_match();
+    }
+
+    fn step_match(&mut self, delta: i32) {
+        if let Some(search) = self.search.as_mut() {
+            search.step(delta);
+        }
+        self.reveal_current_match();
+    }
+
+    /// Re-run the active search against the current rendering. The query
+    /// survives; the current match is re-derived from the scroll offset.
+    /// Called on commit, on reload, and after a resize re-wraps the text.
+    fn rerun_search(&mut self) {
+        let Some(doc) = self.doc.as_ref() else {
+            return;
+        };
+        let Some(search) = self.search.as_mut() else {
+            return;
+        };
+        search.rerun(&doc.rendered.lines, doc.scroll);
+    }
+
+    /// Bring the current match into view, scrolling as little as possible.
+    /// A match already on screen does not move the document — jumping when
+    /// the reader can already see the hit is disorienting.
+    fn reveal_current_match(&mut self) {
+        let Some(m) = self.search.as_ref().and_then(Search::current_match) else {
+            return;
+        };
+        let max = self.max_scroll();
+        let height = self.viewport_height as usize;
+        let Some(doc) = self.doc.as_mut() else {
+            return;
+        };
+        if m.line < doc.scroll {
+            doc.scroll = m.line.min(max);
+        } else if height > 0 && m.line >= doc.scroll + height {
+            doc.scroll = (m.line + 1 - height).min(max);
         }
     }
 }
@@ -516,6 +620,197 @@ mod tests {
         app.apply(Action::Help);
         app.apply(Action::Quit);
         assert!(app.should_quit);
+    }
+
+    /// Type `query` into a fresh prompt and commit it, exactly as the key
+    /// handler would.
+    fn search_for(app: &mut App, query: &str) {
+        app.apply(Action::SearchStart);
+        for c in query.chars() {
+            app.apply(Action::SearchInput(c));
+        }
+        app.apply(Action::SearchCommit);
+    }
+
+    #[test]
+    fn slash_opens_the_prompt_and_typing_builds_the_query() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::SearchStart);
+        app.apply(Action::SearchInput('p'));
+        app.apply(Action::SearchInput('7'));
+        assert_eq!(
+            app.mode,
+            Mode::SearchPrompt {
+                query: "p7".to_string()
+            }
+        );
+        assert!(app.search.is_none(), "nothing runs until Enter");
+    }
+
+    #[test]
+    fn backspace_deletes_the_last_character() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::SearchStart);
+        app.apply(Action::SearchInput('a'));
+        app.apply(Action::SearchInput('b'));
+        app.apply(Action::SearchBackspace);
+        app.apply(Action::SearchBackspace);
+        app.apply(Action::SearchBackspace); // one too many
+        assert_eq!(
+            app.mode,
+            Mode::SearchPrompt {
+                query: String::new()
+            }
+        );
+    }
+
+    #[test]
+    fn esc_in_the_prompt_leaves_the_previous_search_untouched() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p3");
+        let before = app.search.clone();
+        app.apply(Action::SearchStart);
+        app.apply(Action::SearchInput('z'));
+        app.apply(Action::Dismiss);
+        assert!(app.mode.is_reading());
+        assert_eq!(
+            app.search, before,
+            "cancelling must restore the prior state"
+        );
+    }
+
+    #[test]
+    fn committing_finds_matches_and_starts_at_the_first_one() {
+        // app_with lays paragraph `pN` on line 2N.
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p7");
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.query, "p7");
+        assert_eq!(search.matches.len(), 1);
+        assert_eq!(search.current_match().unwrap().line, 14);
+        assert!(app.mode.is_reading(), "Enter leaves the prompt");
+    }
+
+    #[test]
+    fn committing_scrolls_a_match_below_the_viewport_into_view() {
+        // "p7" is on line 14; a 10-line viewport at scroll 0 ends at line 9.
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p7");
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 5);
+    }
+
+    #[test]
+    fn committing_does_not_move_a_match_that_is_already_visible() {
+        // "p2" is on line 4, inside the first screen: no jump.
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p2");
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 0);
+    }
+
+    #[test]
+    fn committing_an_empty_query_clears_the_search_rather_than_matching_all() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p7");
+        assert!(app.search.is_some());
+        search_for(&mut app, "");
+        assert!(app.search.is_none());
+    }
+
+    #[test]
+    fn a_query_with_no_matches_says_so_and_does_not_move() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::ScrollLines(3));
+        search_for(&mut app, "zzz");
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 3);
+        assert_eq!(
+            app.search.as_ref().unwrap().indicator(),
+            "Pattern not found"
+        );
+    }
+
+    #[test]
+    fn n_and_shift_n_wrap_around_the_document() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p1"); // p1, p10..p19: 11 matches
+        let total = app.search.as_ref().unwrap().matches.len();
+        assert!(total > 2, "expected several matches, got {total}");
+
+        app.apply(Action::PrevMatch);
+        assert_eq!(app.search.as_ref().unwrap().current, Some(total - 1));
+        app.apply(Action::NextMatch);
+        assert_eq!(app.search.as_ref().unwrap().current, Some(0));
+    }
+
+    #[test]
+    fn stepping_scrolls_only_when_the_target_is_off_screen() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p0"); // line 0 only
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 0);
+        app.apply(Action::NextMatch); // wraps to itself, already visible
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 0);
+    }
+
+    #[test]
+    fn esc_while_reading_clears_the_active_search() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p7");
+        app.apply(Action::Dismiss);
+        assert!(app.search.is_none());
+        assert!(app.mode.is_reading());
+    }
+
+    #[test]
+    fn search_keys_are_ignored_while_help_is_open() {
+        let mut app = app_with(100, 10);
+        app.apply(Action::Help);
+        app.apply(Action::SearchStart);
+        assert!(app.mode.is_help(), "help takes precedence over the prompt");
+        app.apply(Action::NextMatch);
+        app.apply(Action::PrevMatch);
+        assert!(app.search.is_none());
+        assert_eq!(app.doc.as_ref().unwrap().scroll, 0);
+    }
+
+    #[test]
+    fn resizing_re_runs_the_search_against_the_re_wrapped_lines() {
+        let src = "# One\n\nalpha bravo charlie delta echo foxtrot golf hotel india\n\n\
+                   needle\n\nmore one\n\nmore two\n\nmore three\n";
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_source(PathBuf::from("a.md"), src);
+        search_for(&mut app, "needle");
+        let wide = app.search.as_ref().unwrap().current_match().unwrap().line;
+
+        // The paragraph above wraps at the narrow measure, pushing the
+        // needle down; the query survives and the match line follows it.
+        app.set_geometry(40, 12);
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.query, "needle");
+        assert_eq!(search.matches.len(), 1);
+        assert!(
+            search.current_match().unwrap().line > wide,
+            "re-wrapping should have moved the match down"
+        );
+    }
+
+    #[test]
+    fn reloading_re_runs_the_search_and_keeps_the_query() {
+        let path = std::env::temp_dir().join("mdread_p3_reload_search.md");
+        std::fs::write(&path, "alpha\n\nneedle\n\nomega\n").unwrap();
+
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_path(&path);
+        search_for(&mut app, "needle");
+        assert_eq!(app.search.as_ref().unwrap().matches.len(), 1);
+
+        std::fs::write(&path, "needle\n\nneedle\n").unwrap();
+        app.apply(Action::Reload);
+        let search = app.search.as_ref().unwrap();
+        assert_eq!(search.query, "needle");
+        assert_eq!(search.matches.len(), 2);
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

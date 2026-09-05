@@ -11,6 +11,15 @@ pub enum Action {
     Reload,
     Help,
     Dismiss,
+    /// Open the `/` prompt.
+    SearchStart,
+    /// A character typed into the open prompt.
+    SearchInput(char),
+    SearchBackspace,
+    /// Enter: run the typed query.
+    SearchCommit,
+    NextMatch,
+    PrevMatch,
     None,
 }
 
@@ -35,7 +44,32 @@ pub fn map_key(key: KeyEvent) -> Action {
         (KeyCode::Char('g'), _) | (KeyCode::Home, _) => Action::Top,
         (KeyCode::Char('G'), _) | (KeyCode::End, _) => Action::Bottom,
         (KeyCode::Char('r'), _) => Action::Reload,
+        (KeyCode::Char('/'), _) => Action::SearchStart,
+        (KeyCode::Char('n'), _) => Action::NextMatch,
+        (KeyCode::Char('N'), _) => Action::PrevMatch,
         (KeyCode::Char('?'), _) => Action::Help,
+        _ => Action::None,
+    }
+}
+
+/// Keys while the `/` prompt is open.
+///
+/// This cannot share `map_key`'s table: in the prompt every printable
+/// character is text, so `q` is a letter rather than a quit and `/` is a
+/// slash rather than a second prompt. Ctrl-C stays bound so nothing the
+/// user can type traps them here.
+pub fn map_prompt_key(key: KeyEvent) -> Action {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return match key.code {
+            KeyCode::Char('c') => Action::Quit,
+            _ => Action::None,
+        };
+    }
+    match key.code {
+        KeyCode::Char(c) => Action::SearchInput(c),
+        KeyCode::Backspace => Action::SearchBackspace,
+        KeyCode::Enter => Action::SearchCommit,
+        KeyCode::Esc => Action::Dismiss,
         _ => Action::None,
     }
 }
@@ -127,6 +161,53 @@ mod tests {
         // phases bind Ctrl-D separately.
         assert_eq!(
             map_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Action::None
+        );
+    }
+
+    #[test]
+    fn slash_opens_search_and_n_steps_through_matches() {
+        assert_eq!(map_key(key('/')), Action::SearchStart);
+        assert_eq!(map_key(key('n')), Action::NextMatch);
+        assert_eq!(map_key(key('N')), Action::PrevMatch);
+    }
+
+    #[test]
+    fn prompt_keys_type_delete_commit_and_cancel() {
+        assert_eq!(map_prompt_key(key('q')), Action::SearchInput('q'));
+        assert_eq!(map_prompt_key(key('/')), Action::SearchInput('/'));
+        assert_eq!(map_prompt_key(key('N')), Action::SearchInput('N'));
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+            Action::SearchBackspace
+        );
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Action::SearchCommit
+        );
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            Action::Dismiss
+        );
+    }
+
+    #[test]
+    fn ctrl_c_still_quits_from_the_prompt() {
+        // Nothing the user can type should trap them in the prompt.
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Action::Quit
+        );
+    }
+
+    #[test]
+    fn other_ctrl_and_unbound_keys_do_nothing_in_the_prompt() {
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+            Action::None
+        );
+        assert_eq!(
+            map_prompt_key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
             Action::None
         );
     }
