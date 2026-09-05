@@ -9,7 +9,7 @@
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthChar;
+use unicode_width::UnicodeWidthStr;
 
 /// One stretch of a line to paint over: `[start_col, end_col)` in display
 /// columns from the start of the line's visible text, and the style to lay
@@ -35,31 +35,65 @@ fn fragment(text: String, base: Style, overlay: Option<Style>) -> Span<'static> 
     }
 }
 
-/// Rebuild `line` with `ranges` painted over it. Columns are display
-/// columns, measured the same way the wrapper measures them, so the
-/// highlight lands on exactly the cells the reader sees.
+/// Rebuild `line` with `ranges` painted over it. Columns are measured
+/// exactly the way `crate::app::search::find_matches` measures them: as
+/// `UnicodeWidthStr::width` of the prefix of the line's *concatenated*
+/// visible text up to a character's byte offset, not a per-character width
+/// sum. The two disagree on VS16 and ZWJ sequences (`"❤️"` is one grapheme
+/// of width 2, not two chars summing to 1+1), so matching the matcher's
+/// method — rather than merely using the same crate — is what keeps a
+/// highlight landing on the columns `find_matches` reported. A character
+/// whose own presence does not grow that prefix width (a combining mark, a
+/// variation selector, a ZWJ) is folded into the same span as the
+/// character before it, so one grapheme is never split across two spans
+/// with different styles.
 pub fn highlight_ranges(line: &Line<'static>, ranges: &[Highlight]) -> Line<'static> {
     if ranges.is_empty() {
         return line.clone();
     }
 
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + ranges.len() * 2);
-    let mut col = 0usize;
-    for span in &line.spans {
-        let mut buf = String::new();
-        let mut buf_overlay: Option<Style> = None;
+    // The full visible text of the line, concatenated exactly the way
+    // `search::line_text` builds it, plus which source span each character
+    // came from (spans always break at span boundaries, whatever the
+    // overlay does).
+    let mut full = String::new();
+    let mut chars: Vec<(char, usize, usize)> = Vec::new();
+    for (span_idx, span) in line.spans.iter().enumerate() {
         for ch in span.content.chars() {
-            let overlay = overlay_at(ranges, col);
-            if !buf.is_empty() && overlay != buf_overlay {
-                spans.push(fragment(std::mem::take(&mut buf), span.style, buf_overlay));
-            }
-            buf_overlay = overlay;
-            buf.push(ch);
-            col += ch.width().unwrap_or(0);
+            chars.push((ch, full.len(), span_idx));
+            full.push(ch);
         }
-        if !buf.is_empty() {
-            spans.push(fragment(buf, span.style, buf_overlay));
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + ranges.len() * 2);
+    let mut buf = String::new();
+    let mut buf_span_idx: Option<usize> = None;
+    let mut buf_overlay: Option<Style> = None;
+    let mut prev_overlay: Option<Style> = None;
+
+    for (ch, byte_offset, span_idx) in chars {
+        let col = full[..byte_offset].width();
+        let next_col = full[..byte_offset + ch.len_utf8()].width();
+        let overlay = if next_col == col {
+            // This character did not widen the line, so it rides along
+            // with whatever the previous character's overlay was.
+            prev_overlay
+        } else {
+            overlay_at(ranges, col)
+        };
+
+        if !buf.is_empty() && (Some(span_idx) != buf_span_idx || overlay != buf_overlay) {
+            let style = line.spans[buf_span_idx.expect("buf non-empty implies a span")].style;
+            spans.push(fragment(std::mem::take(&mut buf), style, buf_overlay));
         }
+        buf_span_idx = Some(span_idx);
+        buf_overlay = overlay;
+        buf.push(ch);
+        prev_overlay = overlay;
+    }
+    if !buf.is_empty() {
+        let style = line.spans[buf_span_idx.expect("buf non-empty implies a span")].style;
+        spans.push(fragment(buf, style, buf_overlay));
     }
 
     let mut out = line.clone();
@@ -190,6 +224,38 @@ mod tests {
         let line = Line::from("short".to_string());
         let out = highlight_ranges(&line, &[hl(100, 120)]);
         assert_eq!(joined(&out), "short");
+    }
+
+    #[test]
+    fn emoji_with_variation_selector_does_not_shift_later_columns() {
+        // "❤️" (heart + VS16) is one grapheme with display width 2; the
+        // matcher measures it with `UnicodeWidthStr::width`, not a per-char
+        // sum, so the highlighter must agree on where column 3 falls.
+        let line = Line::from("\u{2764}\u{fe0f} foo".to_string());
+        let out = highlight_ranges(&line, &[hl(3, 6)]);
+        assert_eq!(texts(&out), vec!["\u{2764}\u{fe0f} ", "foo"]);
+        assert_eq!(out.spans[1].style.bg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn zwj_sequence_is_measured_as_one_grapheme() {
+        // A ZWJ family emoji is three code points glued into one grapheme
+        // of display width 2, not the naive per-char sum of 6.
+        let line = Line::from("\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} x".to_string());
+        let out = highlight_ranges(&line, &[hl(3, 4)]);
+        assert_eq!(
+            texts(&out),
+            vec!["\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467} ", "x"]
+        );
+    }
+
+    #[test]
+    fn a_combining_mark_stays_with_its_base_char() {
+        let line = Line::from("e\u{301}a".to_string());
+        let out = highlight_ranges(&line, &[hl(0, 1)]);
+        assert_eq!(texts(&out), vec!["e\u{301}", "a"]);
+        assert_eq!(out.spans[0].style.bg, Some(Color::Yellow));
+        assert_eq!(out.spans[1].style.bg, None);
     }
 
     #[test]
