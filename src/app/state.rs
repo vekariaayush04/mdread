@@ -1,4 +1,5 @@
 use crate::app::action::Action;
+use crate::app::mode::Mode;
 use crate::config::Settings;
 use crate::doc;
 use crate::doc::ir::Document;
@@ -28,10 +29,11 @@ pub struct App {
     pub viewport_height: u16,
     /// Last terminal width seen, used to recompute the measure.
     pub last_term_width: u16,
-    /// Whether the help overlay is showing. While it is, the document must
-    /// not move behind it, so `apply` short-circuits everything except the
-    /// actions that toggle or dismiss the overlay and quitting.
-    pub show_help: bool,
+    /// Which input mode the reader is in. While it is anything but
+    /// `Reading`, the document must not move behind the overlay or prompt,
+    /// so `apply` short-circuits everything except mode switches, the
+    /// prompt's own editing keys, and quitting.
+    pub mode: Mode,
 }
 
 impl App {
@@ -44,7 +46,7 @@ impl App {
             should_quit: false,
             viewport_height: 0,
             last_term_width: 0,
-            show_help: false,
+            mode: Mode::default(),
         }
     }
 
@@ -156,19 +158,23 @@ impl App {
                 return;
             }
             Action::Help => {
-                self.show_help = !self.show_help;
+                self.mode = if self.mode.is_help() {
+                    Mode::Reading
+                } else {
+                    Mode::Help
+                };
                 return;
             }
             Action::Dismiss => {
-                self.show_help = false;
+                self.mode = Mode::Reading;
                 return;
             }
             _ => {}
         }
 
-        // Everything else — scrolling, reload — is suspended while the
-        // overlay is open, so the document underneath cannot move.
-        if self.show_help {
+        // Everything else — scrolling, reload — is suspended in every mode
+        // but Reading, so the document underneath cannot move.
+        if !self.mode.is_reading() {
             return;
         }
 
@@ -405,27 +411,27 @@ mod tests {
     #[test]
     fn help_toggles_on_and_off() {
         let mut app = app_with(100, 10);
-        assert!(!app.show_help);
+        assert!(app.mode.is_reading());
         app.apply(Action::Help);
-        assert!(app.show_help);
+        assert!(app.mode.is_help());
         app.apply(Action::Help);
-        assert!(!app.show_help);
+        assert!(app.mode.is_reading());
     }
 
     #[test]
     fn dismiss_closes_the_help_overlay() {
         let mut app = app_with(100, 10);
         app.apply(Action::Help);
-        assert!(app.show_help);
+        assert!(app.mode.is_help());
         app.apply(Action::Dismiss);
-        assert!(!app.show_help);
+        assert!(app.mode.is_reading());
     }
 
     #[test]
     fn dismiss_is_harmless_when_help_is_already_closed() {
         let mut app = app_with(100, 10);
         app.apply(Action::Dismiss);
-        assert!(!app.show_help);
+        assert!(app.mode.is_reading());
         assert!(!app.should_quit);
     }
 
@@ -460,9 +466,48 @@ mod tests {
         // would fail and clear `doc` in favour of an error. It must instead
         // be a complete no-op while the overlay is open.
         app.apply(Action::Reload);
-        assert!(app.show_help);
+        assert!(app.mode.is_help());
         assert!(app.doc.is_some());
         assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn every_mode_returns_to_reading_on_dismiss() {
+        for mode in [
+            Mode::Help,
+            Mode::SearchPrompt {
+                query: "half typed".to_string(),
+            },
+        ] {
+            let mut app = app_with(100, 10);
+            app.mode = mode;
+            app.apply(Action::Dismiss);
+            assert!(app.mode.is_reading());
+        }
+    }
+
+    #[test]
+    fn the_document_does_not_move_while_the_prompt_is_open() {
+        // The spec is explicit: the document does not move while typing.
+        let mut app = app_with(100, 10);
+        app.apply(Action::ScrollLines(4));
+        app.mode = Mode::SearchPrompt {
+            query: String::new(),
+        };
+        for action in [
+            Action::ScrollLines(5),
+            Action::ScrollHalfPage(1),
+            Action::ScrollPage(1),
+            Action::Top,
+            Action::Bottom,
+        ] {
+            app.apply(action);
+            assert_eq!(
+                app.doc.as_ref().unwrap().scroll,
+                4,
+                "{action:?} moved the document while the prompt was open"
+            );
+        }
     }
 
     #[test]
