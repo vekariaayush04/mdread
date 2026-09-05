@@ -1,4 +1,5 @@
 use crate::app::state::App;
+use crate::ui::highlight::{Highlight, highlight_ranges};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -33,7 +34,39 @@ pub fn visible_lines(app: &App) -> Vec<Line<'static>> {
     };
     let start = doc.scroll.min(doc.rendered.len());
     let end = (start + app.viewport_height as usize).min(doc.rendered.len());
-    doc.rendered.lines[start..end].to_vec()
+    let window = &doc.rendered.lines[start..end];
+
+    let Some(search) = &app.search else {
+        return window.to_vec();
+    };
+    let current = search.current_match();
+
+    window
+        .iter()
+        .enumerate()
+        .map(|(offset, line)| {
+            let index = start + offset;
+            let ranges: Vec<Highlight> = search
+                .matches
+                .iter()
+                .filter(|m| m.line == index)
+                .map(|m| Highlight {
+                    start_col: m.start_col,
+                    end_col: m.end_col,
+                    style: if Some(*m) == current {
+                        app.theme.search_current
+                    } else {
+                        app.theme.search_match
+                    },
+                })
+                .collect();
+            if ranges.is_empty() {
+                line.clone()
+            } else {
+                highlight_ranges(line, &ranges)
+            }
+        })
+        .collect()
 }
 
 pub fn draw_viewer(f: &mut Frame, area: Rect, app: &App) {
@@ -131,5 +164,85 @@ mod tests {
         app.error = Some("cannot read missing.md".into());
         let joined: String = visible_lines(&app).iter().map(text_of).collect();
         assert!(joined.contains("missing.md"));
+    }
+
+    use crate::app::action::Action;
+
+    fn search_for(app: &mut App, query: &str) {
+        app.apply(Action::SearchStart);
+        for c in query.chars() {
+            app.apply(Action::SearchInput(c));
+        }
+        app.apply(Action::SearchCommit);
+    }
+
+    #[test]
+    fn visible_lines_highlight_every_match_on_screen() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_source(PathBuf::from("a.md"), "alpha needle beta\n\nneedle again\n");
+        search_for(&mut app, "needle");
+
+        let lines = visible_lines(&app);
+        let painted: Vec<&str> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.style.bg.is_some())
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(painted, vec!["needle", "needle"]);
+    }
+
+    #[test]
+    fn the_current_match_is_styled_differently_from_the_others() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_source(PathBuf::from("a.md"), "needle one\n\nneedle two\n");
+        search_for(&mut app, "needle");
+
+        let lines = visible_lines(&app);
+        let backgrounds: Vec<_> = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.content.as_ref() == "needle")
+            .map(|s| s.style.bg)
+            .collect();
+        assert_eq!(backgrounds.len(), 2);
+        assert_eq!(backgrounds[0], theme::DARK.search_current.bg);
+        assert_eq!(backgrounds[1], theme::DARK.search_match.bg);
+        assert_ne!(backgrounds[0], backgrounds[1]);
+    }
+
+    #[test]
+    fn visible_lines_are_untouched_when_no_search_is_active() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_source(PathBuf::from("a.md"), "alpha needle beta\n");
+        let lines = visible_lines(&app);
+        assert!(
+            lines
+                .iter()
+                .flat_map(|l| l.spans.iter())
+                .all(|s| s.style.bg.is_none())
+        );
+    }
+
+    #[test]
+    fn a_match_scrolled_off_screen_is_not_drawn() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 8); // viewport height 5
+        app.open_source(
+            PathBuf::from("a.md"),
+            "needle\n\nb\n\nc\n\nd\n\ne\n\nf\n\nneedle\n",
+        );
+        search_for(&mut app, "needle");
+        app.apply(Action::Bottom);
+
+        let painted = visible_lines(&app)
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.style.bg.is_some())
+            .count();
+        assert_eq!(painted, 1, "only the match inside the viewport is painted");
     }
 }
