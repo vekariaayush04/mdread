@@ -99,6 +99,7 @@ impl App {
             Ok(source) => self.open_source(path.to_path_buf(), &source),
             Err(e) => {
                 self.doc = None;
+                self.search = None;
                 // `path` is filesystem data and can legally contain control
                 // characters; this message is eventually rendered as a
                 // `Span`, so it gets the same sanitisation as document text.
@@ -998,6 +999,25 @@ mod tests {
         );
         assert!(app.mode.is_reading());
         assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn a_failed_reload_clears_the_search() {
+        let path = std::env::temp_dir().join("mdread_p3_failed_reload_search.md");
+        std::fs::write(&path, "alpha\n\nneedle\n\nomega\n").unwrap();
+
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 12);
+        app.open_path(&path);
+        search_for(&mut app, "needle");
+        assert!(app.search.is_some());
+
+        std::fs::remove_file(&path).unwrap();
+        app.apply(Action::Reload);
+
+        assert!(app.doc.is_none());
+        assert!(app.error.is_some());
+        assert!(app.search.is_none());
     }
 
     #[test]
