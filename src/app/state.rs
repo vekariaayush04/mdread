@@ -871,6 +871,47 @@ mod tests {
     }
 
     #[test]
+    fn reload_leaves_a_stdin_document_scroll_and_search_untouched() {
+        // Reload must be a true no-op for a piped document: not just
+        // "still has a doc and no error", but scroll position, the active
+        // search (query and matches), and the mode must all survive
+        // byte-for-byte, because open_path (which a real reload would call
+        // for a file) would otherwise reset all three.
+        let src: String = (0..100).map(|i| format!("p{i}\n\n")).collect();
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 13); // viewport_height = 10
+        app.open_stdin(&src);
+
+        app.apply(Action::ScrollLines(4));
+        let scroll_before = app.doc.as_ref().unwrap().scroll;
+        assert_ne!(scroll_before, 0, "the scroll must have actually moved");
+
+        search_for(&mut app, "p7");
+        let search_before = app.search.clone();
+        assert!(search_before.is_some());
+        let scroll_after_search = app.doc.as_ref().unwrap().scroll;
+
+        app.apply(Action::Reload);
+
+        assert_eq!(
+            app.doc.as_ref().unwrap().scroll,
+            scroll_after_search,
+            "reload must not move a stdin document"
+        );
+        assert_eq!(
+            app.search, search_before,
+            "reload must not touch the active search on a stdin document"
+        );
+        assert_eq!(
+            app.search.as_ref().unwrap().query,
+            "p7",
+            "the query must survive untouched"
+        );
+        assert!(app.mode.is_reading());
+        assert!(app.error.is_none());
+    }
+
+    #[test]
     fn a_file_document_is_reloadable() {
         let mut app = App::new(Settings::default(), &theme::DARK);
         app.set_geometry(100, 30);
