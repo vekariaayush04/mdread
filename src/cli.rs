@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, PartialEq)]
 #[command(name = "mdread", version, about, long_about = None)]
 pub struct Cli {
-    /// Markdown file to open.
+    /// Markdown file to open. Omit it to read the document from stdin.
     pub file: Option<PathBuf>,
 
     /// Colour theme: dark, light, or high-contrast.

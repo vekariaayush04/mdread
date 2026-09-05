@@ -61,6 +61,7 @@ Needs Rust 1.88 or newer. Not yet published to crates.io.
 mdread README.md
 mdread --theme light docs/guide.md
 mdread --max-measure 100 notes.md
+cat CHANGELOG.md | mdread          # or: mdread < CHANGELOG.md
 ```
 
 | Flag | Meaning |
@@ -68,6 +69,10 @@ mdread --max-measure 100 notes.md
 | `-t`, `--theme <NAME>` | `dark`, `light`, or `high-contrast` |
 | `--max-measure <COLS>` | Widest the text may become (default 80) |
 | `--config <PATH>` | Use this config file instead of the default |
+
+With no file argument mdread reads the document from stdin, so it works as a
+pager: `git show --stat | mdread`. A piped document cannot be reloaded, so
+`r` does nothing for it.
 
 ## Keys
 

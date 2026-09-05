@@ -19,6 +19,9 @@ pub struct OpenDoc {
     pub rendered: RenderedDoc,
     pub scroll: usize,
     pub content_width: u16,
+    /// Whether `r` can re-read this document. A document piped in on stdin
+    /// has no file behind it, so there is nothing to re-read.
+    pub reloadable: bool,
 }
 
 pub struct App {
@@ -66,6 +69,16 @@ impl App {
 
     /// Parse and render `source` as the open document. Pure: no filesystem.
     pub fn open_source(&mut self, path: PathBuf, source: &str) {
+        self.open_with(path, source, true);
+    }
+
+    /// Open a document piped in on stdin. It gets a sentinel path — the
+    /// label the status bar and the frame title show — and no reload.
+    pub fn open_stdin(&mut self, source: &str) {
+        self.open_with(PathBuf::from("(stdin)"), source, false);
+    }
+
+    fn open_with(&mut self, path: PathBuf, source: &str, reloadable: bool) {
         let content_width = self.content_width();
         let document = doc::parse(source);
         let rendered = render(&document, content_width, self.theme);
@@ -76,6 +89,7 @@ impl App {
             rendered,
             scroll: 0,
             content_width,
+            reloadable,
         });
     }
 
@@ -94,8 +108,12 @@ impl App {
         }
     }
 
-    /// Reload the currently open document from disk.
+    /// Reload the currently open document from disk. A no-op for a document
+    /// that came in on stdin: there is no file to go back to.
     pub fn reload(&mut self) {
+        if !self.doc.as_ref().is_some_and(|d| d.reloadable) {
+            return;
+        }
         if let Some(path) = self.doc.as_ref().map(|d| d.path.clone()) {
             let scroll = self.doc.as_ref().map(|d| d.scroll).unwrap_or(0);
             self.open_path(&path);
@@ -825,5 +843,38 @@ mod tests {
             "unhelpful error: {msg}"
         );
         assert!(!app.should_quit, "a bad file must not end the session");
+    }
+
+    #[test]
+    fn a_stdin_document_is_labelled_and_cannot_be_reloaded() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 30);
+        app.open_stdin("# Piped\n\nbody\n");
+
+        let d = app.doc.as_ref().unwrap();
+        assert_eq!(d.path, PathBuf::from("(stdin)"));
+        assert!(!d.reloadable);
+        assert!(!d.rendered.is_empty());
+        assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn reload_is_a_no_op_for_a_stdin_document() {
+        // "(stdin)" is not a file; if reload tried to read it the document
+        // would be replaced by an error.
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 30);
+        app.open_stdin("# Piped\n\nbody\n");
+        app.apply(Action::Reload);
+        assert!(app.doc.is_some());
+        assert!(app.error.is_none());
+    }
+
+    #[test]
+    fn a_file_document_is_reloadable() {
+        let mut app = App::new(Settings::default(), &theme::DARK);
+        app.set_geometry(100, 30);
+        app.open_source(PathBuf::from("a.md"), "x\n");
+        assert!(app.doc.as_ref().unwrap().reloadable);
     }
 }
