@@ -90,9 +90,14 @@ pager: `git show --stat | mdread`. A piped document cannot be reloaded, so
 | `?` | Show the help overlay |
 | `Esc` | Close the overlay, or clear the search |
 | `q` / `Ctrl-C` | Quit |
+| Mouse wheel | Scroll three lines |
 
 `r` is handy while writing: edit in one window, reload in the other, keep
 your scroll position.
+
+Mouse reporting is on only for the wheel; clicks and drags are ignored. If
+you need to select text with the mouse, hold your terminal's override key
+(Shift in most terminals).
 
 ## Configuration
 

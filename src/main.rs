@@ -1,5 +1,5 @@
 use clap::Parser;
-use mdread::app::action::{Action, map_key, map_prompt_key};
+use mdread::app::action::{Action, map_key, map_mouse, map_prompt_key};
 use mdread::app::mode::Mode;
 use mdread::app::state::App;
 use mdread::cli::Cli;
@@ -100,15 +100,18 @@ fn event_loop(
         app.set_geometry(size.width, size.height);
         terminal.draw(|f| mdread::ui::draw(f, &app))?;
 
-        if event::poll(Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            // The prompt reads every printable character as text, so it
-            // needs its own key table.
-            let action = match &app.mode {
-                Mode::SearchPrompt { .. } => map_prompt_key(key),
-                _ => map_key(key),
+        if event::poll(Duration::from_millis(100))? {
+            let action = match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    // The prompt reads every printable character as text,
+                    // so it needs its own key table.
+                    match &app.mode {
+                        Mode::SearchPrompt { .. } => map_prompt_key(key),
+                        _ => map_key(key),
+                    }
+                }
+                Event::Mouse(mouse) => map_mouse(mouse, &app.mode),
+                _ => Action::None,
             };
             if action != Action::None {
                 app.apply(action);

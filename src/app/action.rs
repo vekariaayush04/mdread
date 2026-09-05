@@ -1,4 +1,5 @@
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::app::mode::Mode;
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
@@ -70,6 +71,24 @@ pub fn map_prompt_key(key: KeyEvent) -> Action {
         KeyCode::Backspace => Action::SearchBackspace,
         KeyCode::Enter => Action::SearchCommit,
         KeyCode::Esc => Action::Dismiss,
+        _ => Action::None,
+    }
+}
+
+/// How many lines one wheel notch moves. Three is the conventional step and
+/// matches what every other terminal pager does.
+const WHEEL_LINES: i32 = 3;
+
+/// The wheel, and only the wheel: clicks and drags do nothing, so mouse
+/// capture buys exactly one feature and no surprises. Ignored in every mode
+/// but `Reading`, matching how the scroll keys are handled there.
+pub fn map_mouse(event: MouseEvent, mode: &Mode) -> Action {
+    if !mode.is_reading() {
+        return Action::None;
+    }
+    match event.kind {
+        MouseEventKind::ScrollDown => Action::ScrollLines(WHEEL_LINES),
+        MouseEventKind::ScrollUp => Action::ScrollLines(-WHEEL_LINES),
         _ => Action::None,
     }
 }
@@ -210,5 +229,64 @@ mod tests {
             map_prompt_key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
             Action::None
         );
+    }
+
+    use crate::app::mode::Mode;
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    fn wheel(kind: MouseEventKind) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn the_wheel_scrolls_three_lines_at_a_time() {
+        assert_eq!(
+            map_mouse(wheel(MouseEventKind::ScrollDown), &Mode::Reading),
+            Action::ScrollLines(3)
+        );
+        assert_eq!(
+            map_mouse(wheel(MouseEventKind::ScrollUp), &Mode::Reading),
+            Action::ScrollLines(-3)
+        );
+    }
+
+    #[test]
+    fn clicks_drags_and_sideways_scrolling_do_nothing() {
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+            MouseEventKind::Drag(MouseButton::Left),
+            MouseEventKind::Moved,
+            MouseEventKind::ScrollLeft,
+            MouseEventKind::ScrollRight,
+        ] {
+            assert_eq!(map_mouse(wheel(kind), &Mode::Reading), Action::None);
+        }
+    }
+
+    #[test]
+    fn the_wheel_is_ignored_in_every_mode_but_reading() {
+        // Same rule the scroll keys follow: overlays and the prompt freeze
+        // the document underneath.
+        for mode in [
+            Mode::Help,
+            Mode::SearchPrompt {
+                query: String::new(),
+            },
+        ] {
+            assert_eq!(
+                map_mouse(wheel(MouseEventKind::ScrollDown), &mode),
+                Action::None
+            );
+            assert_eq!(
+                map_mouse(wheel(MouseEventKind::ScrollUp), &mode),
+                Action::None
+            );
+        }
     }
 }

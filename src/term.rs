@@ -6,7 +6,12 @@ pub trait TermOps {
     fn leave(&mut self) -> io::Result<()>;
 }
 
-/// The real terminal: raw mode plus the alternate screen.
+/// The real terminal: raw mode, the alternate screen, and mouse reporting.
+///
+/// Mouse capture is enabled and disabled inside this pair specifically so
+/// that `TerminalGuard`'s "restore exactly once, even through a panic"
+/// contract covers it: an error or a crash can never leave the user's
+/// terminal reporting mouse events at their shell.
 pub struct RealTerm;
 
 impl TermOps for RealTerm {
@@ -15,6 +20,7 @@ impl TermOps for RealTerm {
         ratatui::crossterm::execute!(
             io::stdout(),
             ratatui::crossterm::terminal::EnterAlternateScreen,
+            ratatui::crossterm::event::EnableMouseCapture,
             ratatui::crossterm::cursor::Hide
         )
     }
@@ -23,6 +29,7 @@ impl TermOps for RealTerm {
         ratatui::crossterm::execute!(
             io::stdout(),
             ratatui::crossterm::cursor::Show,
+            ratatui::crossterm::event::DisableMouseCapture,
             ratatui::crossterm::terminal::LeaveAlternateScreen
         )?;
         ratatui::crossterm::terminal::disable_raw_mode()
