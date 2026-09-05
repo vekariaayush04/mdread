@@ -82,6 +82,76 @@ pub fn find_matches(lines: &[Line<'_>], query: &str) -> Vec<Match> {
     out
 }
 
+/// A committed search: the query, everything it matched in the current
+/// rendering, and which match the reader is on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Search {
+    pub query: String,
+    pub matches: Vec<Match>,
+    pub current: Option<usize>,
+}
+
+impl Search {
+    pub fn new(query: String) -> Self {
+        Self {
+            query,
+            matches: Vec::new(),
+            current: None,
+        }
+    }
+
+    /// Re-run the query against `lines` and re-derive the current match as
+    /// the first one at or after `scroll`. This is the single path used by
+    /// committing a query, reloading, and re-wrapping after a resize, so
+    /// those three can never disagree about where the reader ends up.
+    pub fn rerun(&mut self, lines: &[Line<'_>], scroll: usize) {
+        self.matches = find_matches(lines, &self.query);
+        self.current = self.first_at_or_after(scroll);
+    }
+
+    /// Index of the first match on or after line `line`, wrapping to the
+    /// top of the document when nothing follows it.
+    pub fn first_at_or_after(&self, line: usize) -> Option<usize> {
+        if self.matches.is_empty() {
+            return None;
+        }
+        Some(
+            self.matches
+                .iter()
+                .position(|m| m.line >= line)
+                .unwrap_or(0),
+        )
+    }
+
+    /// Step `delta` matches, wrapping in both directions: `n` is `+1`,
+    /// `N` is `-1`.
+    pub fn step(&mut self, delta: i32) {
+        let count = self.matches.len();
+        if count == 0 {
+            return;
+        }
+        let from = self.current.unwrap_or(0) as i64;
+        self.current = Some((from + delta as i64).rem_euclid(count as i64) as usize);
+    }
+
+    pub fn current_match(&self) -> Option<Match> {
+        self.current.and_then(|i| self.matches.get(i).copied())
+    }
+
+    /// `[k/n]` while the query has hits, `Pattern not found` when it does
+    /// not. Shown in the status bar.
+    pub fn indicator(&self) -> String {
+        if self.matches.is_empty() {
+            return "Pattern not found".to_string();
+        }
+        format!(
+            "[{}/{}]",
+            self.current.map_or(1, |i| i + 1),
+            self.matches.len()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +281,94 @@ mod tests {
             let width = line_text(&lines(&source)[m.line]).width();
             assert!(m.end_col <= width, "{m:?} runs past a {width}-column line");
         }
+    }
+
+    /// Lines with a match on 0, 4 and 8.
+    fn scattered() -> Vec<Line<'static>> {
+        lines(&[
+            "hit", "no", "no", "no", "hit", "no", "no", "no", "hit", "no",
+        ])
+    }
+
+    #[test]
+    fn rerun_lands_on_the_first_match_at_or_after_the_scroll_offset() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 5);
+        assert_eq!(s.matches.len(), 3);
+        assert_eq!(s.current, Some(2));
+        assert_eq!(s.current_match().unwrap().line, 8);
+    }
+
+    #[test]
+    fn rerun_wraps_to_the_top_when_no_match_follows() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 9);
+        assert_eq!(s.current, Some(0));
+        assert_eq!(s.current_match().unwrap().line, 0);
+    }
+
+    #[test]
+    fn rerun_from_the_top_takes_the_first_match() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        assert_eq!(s.current, Some(0));
+    }
+
+    #[test]
+    fn rerun_keeps_the_query_and_replaces_the_matches() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        s.rerun(&lines(&["nothing here"]), 0);
+        assert_eq!(s.query, "hit");
+        assert!(s.matches.is_empty());
+        assert_eq!(s.current, None);
+    }
+
+    #[test]
+    fn stepping_forward_advances_and_wraps_past_the_end() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        s.step(1);
+        assert_eq!(s.current, Some(1));
+        s.step(1);
+        assert_eq!(s.current, Some(2));
+        s.step(1);
+        assert_eq!(s.current, Some(0), "n must wrap around the document");
+    }
+
+    #[test]
+    fn stepping_backward_retreats_and_wraps_past_the_start() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        s.step(-1);
+        assert_eq!(s.current, Some(2), "N must wrap around the document");
+        s.step(-1);
+        assert_eq!(s.current, Some(1));
+    }
+
+    #[test]
+    fn stepping_with_no_matches_is_a_no_op() {
+        let mut s = Search::new("absent".to_string());
+        s.rerun(&scattered(), 0);
+        s.step(1);
+        s.step(-1);
+        assert_eq!(s.current, None);
+        assert_eq!(s.current_match(), None);
+    }
+
+    #[test]
+    fn the_indicator_counts_from_one() {
+        let mut s = Search::new("hit".to_string());
+        s.rerun(&scattered(), 0);
+        assert_eq!(s.indicator(), "[1/3]");
+        s.step(1);
+        assert_eq!(s.indicator(), "[2/3]");
+    }
+
+    #[test]
+    fn the_indicator_reports_a_query_that_matched_nothing() {
+        let mut s = Search::new("absent".to_string());
+        s.rerun(&scattered(), 0);
+        assert_eq!(s.indicator(), "Pattern not found");
     }
 }
