@@ -1002,6 +1002,16 @@ mod tests {
     }
 
     #[test]
+    fn esc_with_help_open_closes_help_and_keeps_the_search() {
+        let mut app = app_with(100, 10);
+        search_for(&mut app, "p7");
+        app.apply(Action::Help);
+        app.apply(Action::Dismiss);
+        assert!(app.mode.is_reading());
+        assert!(app.search.is_some());
+    }
+
+    #[test]
     fn a_failed_reload_clears_the_search() {
         let path = std::env::temp_dir().join("mdread_p3_failed_reload_search.md");
         std::fs::write(&path, "alpha\n\nneedle\n\nomega\n").unwrap();
