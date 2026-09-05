@@ -82,6 +82,7 @@ pub fn draw_status(f: &mut Frame, area: Rect, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::action::Action;
     use crate::config::Settings;
     use crate::theme;
     use std::path::PathBuf;
@@ -132,9 +133,6 @@ mod tests {
             .collect();
         assert!(!text.is_empty());
     }
-
-    use crate::app::action::Action;
-    use crate::app::mode::Mode;
 
     fn text_of(app: &App) -> String {
         status_line(app)

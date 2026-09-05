@@ -96,6 +96,8 @@ pub fn map_mouse(event: MouseEvent, mode: &Mode) -> Action {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::mode::Mode;
+    use ratatui::crossterm::event::MouseButton;
 
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
@@ -230,9 +232,6 @@ mod tests {
             Action::None
         );
     }
-
-    use crate::app::mode::Mode;
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 
     fn wheel(kind: MouseEventKind) -> MouseEvent {
         MouseEvent {

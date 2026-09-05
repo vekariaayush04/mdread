@@ -94,6 +94,7 @@ pub fn draw_viewer(f: &mut Frame, area: Rect, app: &App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::action::Action;
     use crate::config::Settings;
     use crate::theme;
     use std::path::PathBuf;
@@ -165,8 +166,6 @@ mod tests {
         let joined: String = visible_lines(&app).iter().map(text_of).collect();
         assert!(joined.contains("missing.md"));
     }
-
-    use crate::app::action::Action;
 
     fn search_for(app: &mut App, query: &str) {
         app.apply(Action::SearchStart);
