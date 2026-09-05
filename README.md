@@ -79,9 +79,11 @@ mdread --max-measure 100 notes.md
 | `Space` / `PgDn` | Page down |
 | `PgUp` | Page up |
 | `g` / `G` | Top / bottom |
+| `/` | Search the document (Enter runs it, Esc cancels) |
+| `n` / `N` | Next / previous match |
 | `r` | Reload from disk, keeping your place |
 | `?` | Show the help overlay |
-| `Esc` | Close the overlay |
+| `Esc` | Close the overlay, or clear the search |
 | `q` / `Ctrl-C` | Quit |
 
 `r` is handy while writing: edit in one window, reload in the other, keep
@@ -116,8 +118,8 @@ you a clear message rather than a crash, and the terminal is always restored
 ## Not there yet
 
 A file tree, following links between documents with back/forward history, an
-outline pane, in-document and cross-tree search, live reload, inline images,
-and diagram rendering.
+outline pane, cross-tree search, live reload, inline images, and diagram
+rendering.
 
 ## Development
 

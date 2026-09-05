@@ -53,6 +53,18 @@ pub fn keymap() -> Vec<KeyHelp> {
             description: "bottom",
         },
         KeyHelp {
+            keys: "/",
+            description: "search",
+        },
+        KeyHelp {
+            keys: "n / N",
+            description: "next / previous match",
+        },
+        KeyHelp {
+            keys: "Esc",
+            description: "clear search",
+        },
+        KeyHelp {
             keys: "r",
             description: "reload from disk",
         },
@@ -200,9 +212,13 @@ mod tests {
             map_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
             Action::Quit
         );
+        assert_eq!(map_key(key(KeyCode::Char('/'))), Action::SearchStart);
+        assert_eq!(map_key(key(KeyCode::Char('n'))), Action::NextMatch);
+        assert_eq!(map_key(key(KeyCode::Char('N'))), Action::PrevMatch);
+        assert_eq!(map_key(key(KeyCode::Esc)), Action::Dismiss);
 
         // One row per action shown, in the order listed above.
-        assert_eq!(keymap().len(), 11);
+        assert_eq!(keymap().len(), 14);
     }
 
     #[test]
