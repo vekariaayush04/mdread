@@ -134,7 +134,7 @@ rendering.
 ## Development
 
 ```sh
-cargo test                                   # 295 tests, no terminal needed
+cargo test                                   # 303 tests, no terminal needed
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo run --example screenshot               # regenerate the image above
