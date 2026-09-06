@@ -7,10 +7,23 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
-# The installers to generate for each app.
-# `homebrew` is deliberately NOT here yet: it requires a separate
-# `vekariaayush04/homebrew-tap` repo plus a HOMEBREW_TAP_TOKEN secret, and the
-# release job fails if either is missing. Add it once those exist.
-installers = ["shell", "powershell"]
+# The installers to generate for each app. The Homebrew formula is pushed to
+# the tap below by the release job, which needs the HOMEBREW_TAP_TOKEN repo
+# secret (a fine-grained PAT with Contents: read/write on the tap repo).
+installers = ["shell", "powershell", "homebrew"]
+tap = "vekariaayush04/homebrew-tap"
+publish-jobs = ["homebrew"]
+# Install the prebuilt binary into the standard location.
+install-path = "CARGO_HOME"
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# The musl targets are fully static, so they run on Alpine and on distros
+# whose glibc is older than the one on the GitHub runner.
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "x86_64-pc-windows-msvc",
+]
