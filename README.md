@@ -60,6 +60,12 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/vekariaayush04/mdread/r
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/vekariaayush04/mdread/releases/latest/download/mdread-installer.ps1 | iex"
 ```
 
+With Homebrew on macOS or Linux:
+
+```sh
+brew install vekariaayush04/tap/mdread
+```
+
 With a Rust toolchain (1.88 or newer), install from crates.io instead:
 
 ```sh
