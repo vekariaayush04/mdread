@@ -13,7 +13,7 @@ readme = "README.md"
 keywords = ["markdown", "tui", "terminal", "viewer", "cli"]
 categories = ["command-line-utilities", "text-processing"]
 # Planning documents are for the repo, not for everyone who downloads the crate.
-exclude = ["docs/superpowers/", "BUILD_REPORT.md", ".github/"]
+exclude = ["docs/superpowers/", "BUILD_REPORT.md", ".github/", "assets/"]
 
 [lib]
 name = "mdread"
