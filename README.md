@@ -60,15 +60,19 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/vekariaayush04/mdread/r
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/vekariaayush04/mdread/releases/latest/download/mdread-installer.ps1 | iex"
 ```
 
-Or build from source, which needs Rust 1.88 or newer:
+With a Rust toolchain (1.88 or newer), install from crates.io instead:
+
+```sh
+cargo install mdread
+```
+
+Or build from source:
 
 ```sh
 git clone https://github.com/vekariaayush04/mdread
 cd mdread
 cargo install --path .
 ```
-
-Not yet published to crates.io.
 
 ## Usage
 
