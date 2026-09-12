@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-13
+
 ### Added
 
 - Static Linux builds for `x86_64` and `aarch64` (musl), so the prebuilt
@@ -43,6 +45,7 @@ uses [Semantic Versioning](https://semver.org/).
   three colour themes. Text is centred at a configurable measure and
   re-wraps on resize without losing your place. `r` reloads from disk.
 
-[Unreleased]: https://github.com/vekariaayush04/mdread/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/vekariaayush04/mdread/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/vekariaayush04/mdread/releases/tag/v0.2.1
 [0.2.0]: https://github.com/vekariaayush04/mdread/releases/tag/v0.2.0
 [0.1.0]: https://crates.io/crates/mdread/0.1.0
