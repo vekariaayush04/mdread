@@ -7,6 +7,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use unicode_width::UnicodeWidthChar;
 
 /// A `less`-style position indicator: All / Top / Bot / a percentage.
 /// A bare "100%" when everything already fits reads as a bug, so it is
@@ -25,25 +26,53 @@ pub fn scroll_indicator(scroll: usize, max_scroll: usize, has_doc: bool) -> Stri
     }
 }
 
+/// Keep only as much of the *end* of `s` as fits in `max_width` display
+/// columns, dropping whole characters from the front. Matching still uses
+/// the full, untrimmed query; this only affects what gets drawn.
+fn trim_to_width_from_front(s: &str, max_width: usize) -> String {
+    let mut kept: Vec<char> = Vec::new();
+    let mut used = 0usize;
+    for c in s.chars().rev() {
+        let w = c.width().unwrap_or(0);
+        if used + w > max_width {
+            break;
+        }
+        used += w;
+        kept.push(c);
+    }
+    kept.iter().rev().collect()
+}
+
 /// The `/` prompt, drawn in the status row. The trailing bar is the cursor:
 /// the real terminal cursor is hidden for the whole session, so the prompt
 /// has to draw its own.
 ///
 /// The query is user input, so it goes through the same `strip_controls`
-/// sanitiser as document text before it becomes a `Span`.
-fn prompt_line(query: &str, theme: &Theme) -> Line<'static> {
+/// sanitiser as document text before it becomes a `Span`. When the whole
+/// prompt would be wider than `width`, characters are dropped from the
+/// front of the query (never the cursor bar) so the cursor stays visible.
+fn prompt_line(query: &str, theme: &Theme, width: u16) -> Line<'static> {
+    if width == 0 {
+        return Line::from(vec![]);
+    }
+    if width == 1 {
+        return Line::from(vec![Span::styled("/", Style::default().fg(theme.accent))]);
+    }
+    let sanitized = strip_controls(query, &[]);
+    let available = width.saturating_sub(2) as usize;
+    let visible = trim_to_width_from_front(&sanitized, available);
     Line::from(vec![
         Span::styled("/", Style::default().fg(theme.accent)),
-        Span::styled(strip_controls(query, &[]), Style::default().fg(theme.text)),
+        Span::styled(visible, Style::default().fg(theme.text)),
         Span::styled("▏", Style::default().fg(theme.accent)),
     ])
 }
 
-pub fn status_line(app: &App) -> Line<'static> {
+pub fn status_line(app: &App, width: u16) -> Line<'static> {
     // While the prompt is open it owns the whole row: there is nowhere else
     // to put a one-line editor.
     if let Mode::SearchPrompt { query } = &app.mode {
-        return prompt_line(query, app.theme);
+        return prompt_line(query, app.theme, width);
     }
 
     // A filename can legally contain control characters (it is filesystem
@@ -76,7 +105,7 @@ pub fn status_line(app: &App) -> Line<'static> {
 }
 
 pub fn draw_status(f: &mut Frame, area: Rect, app: &App) {
-    f.render_widget(Paragraph::new(status_line(app)), area);
+    f.render_widget(Paragraph::new(status_line(app, area.width)), area);
 }
 
 #[cfg(test)]
@@ -114,7 +143,7 @@ mod tests {
         let mut app = App::new(Settings::default(), &theme::DARK);
         app.set_geometry(100, 30);
         app.open_source(PathBuf::from("docs/intro.md"), "x\n");
-        let text: String = status_line(&app)
+        let text: String = status_line(&app, 80)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
@@ -126,7 +155,7 @@ mod tests {
     #[test]
     fn the_status_line_is_usable_with_no_document() {
         let app = App::new(Settings::default(), &theme::DARK);
-        let text: String = status_line(&app)
+        let text: String = status_line(&app, 80)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
@@ -135,7 +164,7 @@ mod tests {
     }
 
     fn text_of(app: &App) -> String {
-        status_line(app)
+        status_line(app, 80)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
@@ -209,5 +238,35 @@ mod tests {
         let text = text_of(&app);
         assert!(!text.contains('['), "got: {text}");
         assert!(!text.contains("Pattern"), "got: {text}");
+    }
+
+    fn prompt_text(query: &str, width: u16) -> String {
+        prompt_line(query, &theme::DARK, width)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn a_short_query_is_shown_whole() {
+        assert_eq!(prompt_text("para", 80), "/para▏");
+    }
+
+    #[test]
+    fn a_long_query_shows_its_tail_and_keeps_the_cursor() {
+        assert_eq!(prompt_text("abcdefghijklmnop", 10), "/ijklmnop▏");
+    }
+
+    #[test]
+    fn trimming_counts_display_columns_not_bytes() {
+        assert_eq!(prompt_text("漢字漢字ab", 6), "/字ab▏");
+    }
+
+    #[test]
+    fn a_one_column_prompt_does_not_panic() {
+        prompt_text("hello", 0);
+        prompt_text("hello", 1);
+        prompt_text("hello", 2);
     }
 }
