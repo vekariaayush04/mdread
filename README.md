@@ -5,9 +5,6 @@ tables, highlighted code, and text set at a width you can actually read.
 
 ![mdread reading a document, searching it, and opening the help overlay](assets/demo.gif)
 
-*(Recorded from a real session by `assets/record-demo.py`, which drives the
-binary in a pseudo-terminal and renders each frame.)*
-
 ## Why
 
 `glow` and `mdcat` render a single document well but have no notion of a
