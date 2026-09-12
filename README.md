@@ -151,7 +151,7 @@ rendering.
 ## Development
 
 ```sh
-cargo test                                   # 303 tests, no terminal needed
+cargo test                                   # 307 tests, no terminal needed
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
