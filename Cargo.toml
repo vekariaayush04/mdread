@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 # Describes what it does TODAY. The docs-tree browser is planned, not built,
 # and a crates.io description is a promise to people who have not run it yet.
-description = "A terminal Markdown reader with syntax-highlighted code, GFM tables, and themes"
+description = "A terminal Markdown reader with search, syntax-highlighted code, GFM tables, and themes"
 license = "MIT"
 repository = "https://github.com/vekariaayush04/mdread"
 homepage = "https://github.com/vekariaayush04/mdread"

@@ -19,9 +19,15 @@ search, stdin, and the mouse wheel.
 
 ## Install
 
-Prebuilt binaries for Linux, macOS, and Windows are attached to each
-[release](https://github.com/vekariaayush04/mdread/releases/latest).
-The one-line installers put `mdread` on your PATH:
+With Homebrew on macOS or Linux:
+
+```sh
+brew install vekariaayush04/tap/mdread
+```
+
+Or with the one-line installer, which downloads the prebuilt binary for your
+platform from the latest [release](https://github.com/vekariaayush04/mdread/releases/latest)
+and puts it on your PATH:
 
 ```sh
 # Linux and macOS
@@ -33,25 +39,32 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/vekariaayush04/mdread/r
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/vekariaayush04/mdread/releases/latest/download/mdread-installer.ps1 | iex"
 ```
 
-With Homebrew on macOS or Linux:
-
-```sh
-brew install vekariaayush04/tap/mdread
-```
-
-With a Rust toolchain (1.88 or newer), install from crates.io instead:
+With a Rust toolchain (1.88 or newer), from crates.io:
 
 ```sh
 cargo install mdread
 ```
 
-Or build from source:
+Or from source:
 
 ```sh
 git clone https://github.com/vekariaayush04/mdread
 cd mdread
 cargo install --path .
 ```
+
+The Linux release archives come in glibc and static musl builds; the musl
+ones run on Alpine and on older distributions.
+
+### Updating
+
+mdread does not update itself. Use the same channel you installed with:
+
+| Installed via | Update with |
+|---|---|
+| Homebrew | `brew upgrade mdread` |
+| One-line installer | run the same one-liner again |
+| crates.io | `cargo install mdread` |
 
 ## Usage
 
@@ -99,8 +112,15 @@ you need to select text with the mouse, hold your terminal's override key
 
 ## Configuration
 
-TOML at `~/.config/mdread/config.toml` on Linux. Every field is optional and
-mdread runs fine with no config file at all.
+A TOML file, read from the platform's config directory:
+
+| OS | Path |
+|---|---|
+| Linux | `~/.config/mdread/config.toml` |
+| macOS | `~/Library/Application Support/mdread/config.toml` |
+| Windows | `%APPDATA%\mdread\config.toml` |
+
+Every field is optional and mdread runs fine with no config file at all.
 
 ```toml
 # Colour theme: "dark", "light", or "high-contrast".
@@ -121,11 +141,9 @@ tables with per-column alignment, and syntax-highlighted fenced code blocks.
 Text is centred at a configurable measure and re-wraps on resize without
 losing your place. A missing file, bad theme name, or malformed config gives
 you a clear message rather than a crash, and the terminal is always restored
-— even on a panic.
-
-Since 0.2: in-document search with `/`, `n`, and `N`, with every match
-highlighted; reading from stdin so it works as a pager; and mouse-wheel
-scrolling.
+— even on a panic. In-document search highlights every match and steps
+between them, a piped document reads like a file, and the mouse wheel
+scrolls.
 
 ## Not there yet
 
@@ -139,7 +157,16 @@ rendering.
 cargo test                                   # 303 tests, no terminal needed
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
-cargo run --example screenshot               # regenerate the image above
+```
+
+The GIF at the top is recorded from a real session by `assets/record-demo.py`,
+which drives the binary in a pseudo-terminal and renders each frame. To
+re-record it after a UI change:
+
+```sh
+cargo build --release
+python3 -m venv .venv && .venv/bin/pip install pyte pillow
+cd assets && ../.venv/bin/python record-demo.py ../target/release/mdread demo.md demo.gif
 ```
 
 Rendering is snapshot-tested with [`insta`](https://insta.rs). If you change
